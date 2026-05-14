@@ -157,6 +157,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch m.state {
+		case stateFormSite, stateFormAlert, stateFormUser:
+			if msg.String() == "esc" {
+				m.huhForm = nil
+				m.state = stateDashboard
+				if m.currentTab == 3 {
+					m.state = stateUsers
+				}
+				return m, nil
+			}
+
+			if m.huhForm != nil {
+				form, formCmd := m.huhForm.Update(msg)
+				if f, ok := form.(*huh.Form); ok {
+					m.huhForm = f
+				}
+				if m.huhForm.State == huh.StateCompleted {
+					m.submitForm()
+					m.refreshData()
+					m.huhForm = nil
+				}
+				return m, formCmd
+			}
+
 		case stateDashboard, stateLogs, stateUsers:
 			switch msg.String() {
 			case "q":
