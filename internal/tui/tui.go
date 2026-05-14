@@ -218,6 +218,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.editID = m.alerts[m.cursor].ID
 					m.state = stateFormAlert
 					return m, m.initAlertHuhForm()
+				} else if m.currentTab == 3 && m.isAdmin && len(m.users) > 0 {
+					m.editID = m.users[m.cursor].ID
+					m.state = stateFormUser
+					return m, m.initUserHuhForm()
 				}
 			case "d", "backspace":
 				if m.currentTab == 1 && len(m.alerts) > 0 {
@@ -258,6 +262,19 @@ func (m *Model) handleClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 		for i := m.tableOffset; i < end; i++ {
 			if m.zones.Get(fmt.Sprintf("site-%d", i)).InBounds(msg) {
+				m.cursor = i
+				return m, nil
+			}
+		}
+	}
+
+	if m.currentTab == 3 {
+		end := m.tableOffset + m.maxTableRows
+		if end > len(m.users) {
+			end = len(m.users)
+		}
+		for i := m.tableOffset; i < end; i++ {
+			if m.zones.Get(fmt.Sprintf("user-%d", i)).InBounds(msg) {
 				m.cursor = i
 				return m, nil
 			}
@@ -366,6 +383,9 @@ func (m Model) View() string {
 				}
 			case stateFormUser:
 				title = "Add User"
+				if m.editID > 0 {
+					title = fmt.Sprintf("Edit User #%d", m.editID)
+				}
 			}
 			header := titleStyle.Render(title)
 			footer := subtleStyle.Render("\n[Esc] Cancel")

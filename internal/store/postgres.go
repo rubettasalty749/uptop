@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"go-upkeep/internal/models"
-	
+
 	_ "github.com/lib/pq"
 )
 
@@ -16,7 +16,9 @@ type PostgresStore struct {
 func (p *PostgresStore) Init() error {
 	var err error
 	p.db, err = sql.Open("postgres", p.ConnStr)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS alerts (
@@ -45,7 +47,9 @@ func (p *PostgresStore) Init() error {
 		);`,
 	}
 	for _, q := range queries {
-		if _, err := p.db.Exec(q); err != nil { return err }
+		if _, err := p.db.Exec(q); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -53,7 +57,9 @@ func (p *PostgresStore) Init() error {
 // ... [CRUD Methods are identical to Phase 4, keeping them concise here] ...
 func (p *PostgresStore) GetSites() []models.Site {
 	rows, err := p.db.Query("SELECT id, COALESCE(name, url), url, COALESCE(type, 'http'), COALESCE(token, ''), interval, alert_id, check_ssl, threshold, max_retries FROM sites")
-	if err != nil { return []models.Site{} }
+	if err != nil {
+		return []models.Site{}
+	}
 	defer rows.Close()
 	var sites []models.Site
 	for rows.Next() {
@@ -65,23 +71,30 @@ func (p *PostgresStore) GetSites() []models.Site {
 }
 func (p *PostgresStore) AddSite(name, url, sType string, interval, alertID int, checkSSL bool, threshold, retries int) {
 	token := ""
-	if sType == "push" { token = generateToken() }
+	if sType == "push" {
+		token = generateToken()
+	}
 	p.db.Exec("INSERT INTO sites (name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)", name, url, sType, token, interval, alertID, checkSSL, threshold, retries)
 }
 func (p *PostgresStore) UpdateSite(id int, name, url, sType string, interval, alertID int, checkSSL bool, threshold, retries int) {
 	var existingToken string
 	p.db.QueryRow("SELECT token FROM sites WHERE id=$1", id).Scan(&existingToken)
-	if sType == "push" && existingToken == "" { existingToken = generateToken() }
+	if sType == "push" && existingToken == "" {
+		existingToken = generateToken()
+	}
 	p.db.Exec("UPDATE sites SET name=$1, url=$2, type=$3, token=$4, interval=$5, alert_id=$6, check_ssl=$7, threshold=$8, max_retries=$9 WHERE id=$10", name, url, sType, existingToken, interval, alertID, checkSSL, threshold, retries, id)
 }
 func (p *PostgresStore) DeleteSite(id int) { p.db.Exec("DELETE FROM sites WHERE id=$1", id) }
 func (p *PostgresStore) GetAllAlerts() []models.AlertConfig {
 	rows, err := p.db.Query("SELECT id, name, type, settings FROM alerts")
-	if err != nil { return []models.AlertConfig{} }
+	if err != nil {
+		return []models.AlertConfig{}
+	}
 	defer rows.Close()
 	var alerts []models.AlertConfig
 	for rows.Next() {
-		var a models.AlertConfig; var settingsJSON string
+		var a models.AlertConfig
+		var settingsJSON string
 		rows.Scan(&a.ID, &a.Name, &a.Type, &settingsJSON)
 		json.Unmarshal([]byte(settingsJSON), &a.Settings)
 		alerts = append(alerts, a)
@@ -89,9 +102,12 @@ func (p *PostgresStore) GetAllAlerts() []models.AlertConfig {
 	return alerts
 }
 func (p *PostgresStore) GetAlert(id int) (models.AlertConfig, bool) {
-	var a models.AlertConfig; var settingsJSON string
+	var a models.AlertConfig
+	var settingsJSON string
 	err := p.db.QueryRow("SELECT id, name, type, settings FROM alerts WHERE id = $1", id).Scan(&a.ID, &a.Name, &a.Type, &settingsJSON)
-	if err != nil { return a, false }
+	if err != nil {
+		return a, false
+	}
 	json.Unmarshal([]byte(settingsJSON), &a.Settings)
 	return a, true
 }
@@ -106,7 +122,9 @@ func (p *PostgresStore) UpdateAlert(id int, name, aType string, settings map[str
 func (p *PostgresStore) DeleteAlert(id int) { p.db.Exec("DELETE FROM alerts WHERE id=$1", id) }
 func (p *PostgresStore) GetAllUsers() []models.User {
 	rows, err := p.db.Query("SELECT id, username, public_key, role FROM users")
-	if err != nil { return []models.User{} }
+	if err != nil {
+		return []models.User{}
+	}
 	defer rows.Close()
 	var users []models.User
 	for rows.Next() {
@@ -118,6 +136,10 @@ func (p *PostgresStore) GetAllUsers() []models.User {
 }
 func (p *PostgresStore) AddUser(username, publicKey, role string) error {
 	_, err := p.db.Exec("INSERT INTO users (username, public_key, role) VALUES ($1, $2, $3)", username, publicKey, role)
+	return err
+}
+func (p *PostgresStore) UpdateUser(id int, username, publicKey, role string) error {
+	_, err := p.db.Exec("UPDATE users SET username=$1, public_key=$2, role=$3 WHERE id=$4", username, publicKey, role, id)
 	return err
 }
 func (p *PostgresStore) DeleteUser(id int) error {
@@ -137,7 +159,9 @@ func (p *PostgresStore) ExportData() models.Backup {
 
 func (p *PostgresStore) ImportData(data models.Backup) error {
 	tx, err := p.db.Begin()
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	tx.Exec("TRUNCATE TABLE sites RESTART IDENTITY CASCADE")
 	tx.Exec("TRUNCATE TABLE alerts RESTART IDENTITY CASCADE")
@@ -154,7 +178,7 @@ func (p *PostgresStore) ImportData(data models.Backup) error {
 		tx.Exec("INSERT INTO sites (id, name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
 			st.ID, st.Name, st.URL, st.Type, st.Token, st.Interval, st.AlertID, st.CheckSSL, st.ExpiryThreshold, st.MaxRetries)
 	}
-	
+
 	tx.Exec("SELECT setval('sites_id_seq', (SELECT MAX(id) FROM sites))")
 	tx.Exec("SELECT setval('alerts_id_seq', (SELECT MAX(id) FROM alerts))")
 	tx.Exec("SELECT setval('users_id_seq', (SELECT MAX(id) FROM users))")

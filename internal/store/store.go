@@ -6,7 +6,7 @@ import (
 
 type Store interface {
 	Init() error
-	
+
 	// Sites
 	GetSites() []models.Site
 	AddSite(name, url, sType string, interval, alertID int, checkSSL bool, threshold, retries int)
@@ -23,6 +23,7 @@ type Store interface {
 	// Users
 	GetAllUsers() []models.User
 	AddUser(username, publicKey, role string) error
+	UpdateUser(id int, username, publicKey, role string) error
 	DeleteUser(id int) error
 
 	// Phase 5: Backup & Restore
