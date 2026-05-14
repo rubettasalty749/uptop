@@ -37,7 +37,17 @@ func (p *PostgresStore) Init() error {
 			alert_id INTEGER,
 			check_ssl BOOLEAN DEFAULT FALSE,
 			threshold INTEGER DEFAULT 7,
-			max_retries INTEGER DEFAULT 0
+			max_retries INTEGER DEFAULT 0,
+			hostname TEXT DEFAULT '',
+			port INTEGER DEFAULT 0,
+			timeout INTEGER DEFAULT 0,
+			method TEXT DEFAULT 'GET',
+			description TEXT DEFAULT '',
+			parent_id INTEGER DEFAULT 0,
+			accepted_codes TEXT DEFAULT '200-299',
+			dns_resolve_type TEXT DEFAULT '',
+			dns_server TEXT DEFAULT '',
+			ignore_tls BOOLEAN DEFAULT FALSE
 		);`,
 		`CREATE TABLE IF NOT EXISTS users (
 			id SERIAL PRIMARY KEY,
@@ -51,12 +61,29 @@ func (p *PostgresStore) Init() error {
 			return err
 		}
 	}
+
+	migrations := []string{
+		"ALTER TABLE sites ADD COLUMN IF NOT EXISTS hostname TEXT DEFAULT ''",
+		"ALTER TABLE sites ADD COLUMN IF NOT EXISTS port INTEGER DEFAULT 0",
+		"ALTER TABLE sites ADD COLUMN IF NOT EXISTS timeout INTEGER DEFAULT 0",
+		"ALTER TABLE sites ADD COLUMN IF NOT EXISTS method TEXT DEFAULT 'GET'",
+		"ALTER TABLE sites ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''",
+		"ALTER TABLE sites ADD COLUMN IF NOT EXISTS parent_id INTEGER DEFAULT 0",
+		"ALTER TABLE sites ADD COLUMN IF NOT EXISTS accepted_codes TEXT DEFAULT '200-299'",
+		"ALTER TABLE sites ADD COLUMN IF NOT EXISTS dns_resolve_type TEXT DEFAULT ''",
+		"ALTER TABLE sites ADD COLUMN IF NOT EXISTS dns_server TEXT DEFAULT ''",
+		"ALTER TABLE sites ADD COLUMN IF NOT EXISTS ignore_tls BOOLEAN DEFAULT FALSE",
+	}
+	for _, m := range migrations {
+		p.db.Exec(m)
+	}
+
 	return nil
 }
 
 // ... [CRUD Methods are identical to Phase 4, keeping them concise here] ...
 func (p *PostgresStore) GetSites() []models.Site {
-	rows, err := p.db.Query("SELECT id, COALESCE(name, url), url, COALESCE(type, 'http'), COALESCE(token, ''), interval, alert_id, check_ssl, threshold, max_retries FROM sites")
+	rows, err := p.db.Query("SELECT id, COALESCE(name, url), url, COALESCE(type, 'http'), COALESCE(token, ''), interval, alert_id, check_ssl, threshold, max_retries, COALESCE(hostname, ''), COALESCE(port, 0), COALESCE(timeout, 0), COALESCE(method, 'GET'), COALESCE(description, ''), COALESCE(parent_id, 0), COALESCE(accepted_codes, '200-299'), COALESCE(dns_resolve_type, ''), COALESCE(dns_server, ''), COALESCE(ignore_tls, FALSE) FROM sites")
 	if err != nil {
 		return []models.Site{}
 	}
@@ -64,25 +91,30 @@ func (p *PostgresStore) GetSites() []models.Site {
 	var sites []models.Site
 	for rows.Next() {
 		var s models.Site
-		rows.Scan(&s.ID, &s.Name, &s.URL, &s.Type, &s.Token, &s.Interval, &s.AlertID, &s.CheckSSL, &s.ExpiryThreshold, &s.MaxRetries)
+		rows.Scan(&s.ID, &s.Name, &s.URL, &s.Type, &s.Token, &s.Interval, &s.AlertID, &s.CheckSSL, &s.ExpiryThreshold, &s.MaxRetries,
+			&s.Hostname, &s.Port, &s.Timeout, &s.Method, &s.Description, &s.ParentID, &s.AcceptedCodes, &s.DNSResolveType, &s.DNSServer, &s.IgnoreTLS)
 		sites = append(sites, s)
 	}
 	return sites
 }
-func (p *PostgresStore) AddSite(name, url, sType string, interval, alertID int, checkSSL bool, threshold, retries int) {
+func (p *PostgresStore) AddSite(site models.Site) {
 	token := ""
-	if sType == "push" {
+	if site.Type == "push" {
 		token = generateToken()
 	}
-	p.db.Exec("INSERT INTO sites (name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)", name, url, sType, token, interval, alertID, checkSSL, threshold, retries)
+	p.db.Exec("INSERT INTO sites (name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries, hostname, port, timeout, method, description, parent_id, accepted_codes, dns_resolve_type, dns_server, ignore_tls) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)",
+		site.Name, site.URL, site.Type, token, site.Interval, site.AlertID, site.CheckSSL, site.ExpiryThreshold, site.MaxRetries,
+		site.Hostname, site.Port, site.Timeout, site.Method, site.Description, site.ParentID, site.AcceptedCodes, site.DNSResolveType, site.DNSServer, site.IgnoreTLS)
 }
-func (p *PostgresStore) UpdateSite(id int, name, url, sType string, interval, alertID int, checkSSL bool, threshold, retries int) {
+func (p *PostgresStore) UpdateSite(site models.Site) {
 	var existingToken string
-	p.db.QueryRow("SELECT token FROM sites WHERE id=$1", id).Scan(&existingToken)
-	if sType == "push" && existingToken == "" {
+	p.db.QueryRow("SELECT token FROM sites WHERE id=$1", site.ID).Scan(&existingToken)
+	if site.Type == "push" && existingToken == "" {
 		existingToken = generateToken()
 	}
-	p.db.Exec("UPDATE sites SET name=$1, url=$2, type=$3, token=$4, interval=$5, alert_id=$6, check_ssl=$7, threshold=$8, max_retries=$9 WHERE id=$10", name, url, sType, existingToken, interval, alertID, checkSSL, threshold, retries, id)
+	p.db.Exec("UPDATE sites SET name=$1, url=$2, type=$3, token=$4, interval=$5, alert_id=$6, check_ssl=$7, threshold=$8, max_retries=$9, hostname=$10, port=$11, timeout=$12, method=$13, description=$14, parent_id=$15, accepted_codes=$16, dns_resolve_type=$17, dns_server=$18, ignore_tls=$19 WHERE id=$20",
+		site.Name, site.URL, site.Type, existingToken, site.Interval, site.AlertID, site.CheckSSL, site.ExpiryThreshold, site.MaxRetries,
+		site.Hostname, site.Port, site.Timeout, site.Method, site.Description, site.ParentID, site.AcceptedCodes, site.DNSResolveType, site.DNSServer, site.IgnoreTLS, site.ID)
 }
 func (p *PostgresStore) DeleteSite(id int) { p.db.Exec("DELETE FROM sites WHERE id=$1", id) }
 func (p *PostgresStore) GetAllAlerts() []models.AlertConfig {
@@ -175,8 +207,9 @@ func (p *PostgresStore) ImportData(data models.Backup) error {
 		tx.Exec("INSERT INTO alerts (id, name, type, settings) VALUES ($1, $2, $3, $4)", a.ID, a.Name, a.Type, string(jsonBytes))
 	}
 	for _, st := range data.Sites {
-		tx.Exec("INSERT INTO sites (id, name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-			st.ID, st.Name, st.URL, st.Type, st.Token, st.Interval, st.AlertID, st.CheckSSL, st.ExpiryThreshold, st.MaxRetries)
+		tx.Exec("INSERT INTO sites (id, name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries, hostname, port, timeout, method, description, parent_id, accepted_codes, dns_resolve_type, dns_server, ignore_tls) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)",
+			st.ID, st.Name, st.URL, st.Type, st.Token, st.Interval, st.AlertID, st.CheckSSL, st.ExpiryThreshold, st.MaxRetries,
+			st.Hostname, st.Port, st.Timeout, st.Method, st.Description, st.ParentID, st.AcceptedCodes, st.DNSResolveType, st.DNSServer, st.IgnoreTLS)
 	}
 
 	tx.Exec("SELECT setval('sites_id_seq', (SELECT MAX(id) FROM sites))")

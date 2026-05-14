@@ -39,7 +39,17 @@ func (s *SQLiteStore) Init() error {
 		alert_id INTEGER,
 		check_ssl BOOLEAN DEFAULT 0,
 		threshold INTEGER DEFAULT 7,
-		max_retries INTEGER DEFAULT 0
+		max_retries INTEGER DEFAULT 0,
+		hostname TEXT DEFAULT '',
+		port INTEGER DEFAULT 0,
+		timeout INTEGER DEFAULT 0,
+		method TEXT DEFAULT 'GET',
+		description TEXT DEFAULT '',
+		parent_id INTEGER DEFAULT 0,
+		accepted_codes TEXT DEFAULT '200-299',
+		dns_resolve_type TEXT DEFAULT '',
+		dns_server TEXT DEFAULT '',
+		ignore_tls BOOLEAN DEFAULT 0
 	);
 	CREATE TABLE IF NOT EXISTS users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,7 +58,27 @@ func (s *SQLiteStore) Init() error {
 		role TEXT DEFAULT 'user'
 	);`
 	_, err = s.db.Exec(createTables)
-	return err
+	if err != nil {
+		return err
+	}
+
+	migrations := []string{
+		"ALTER TABLE sites ADD COLUMN hostname TEXT DEFAULT ''",
+		"ALTER TABLE sites ADD COLUMN port INTEGER DEFAULT 0",
+		"ALTER TABLE sites ADD COLUMN timeout INTEGER DEFAULT 0",
+		"ALTER TABLE sites ADD COLUMN method TEXT DEFAULT 'GET'",
+		"ALTER TABLE sites ADD COLUMN description TEXT DEFAULT ''",
+		"ALTER TABLE sites ADD COLUMN parent_id INTEGER DEFAULT 0",
+		"ALTER TABLE sites ADD COLUMN accepted_codes TEXT DEFAULT '200-299'",
+		"ALTER TABLE sites ADD COLUMN dns_resolve_type TEXT DEFAULT ''",
+		"ALTER TABLE sites ADD COLUMN dns_server TEXT DEFAULT ''",
+		"ALTER TABLE sites ADD COLUMN ignore_tls BOOLEAN DEFAULT 0",
+	}
+	for _, m := range migrations {
+		s.db.Exec(m)
+	}
+
+	return nil
 }
 
 func generateToken() string {
@@ -60,7 +90,7 @@ func generateToken() string {
 }
 
 func (s *SQLiteStore) GetSites() []models.Site {
-	rows, err := s.db.Query("SELECT id, COALESCE(name, url), url, COALESCE(type, 'http'), COALESCE(token, ''), interval, alert_id, check_ssl, threshold, max_retries FROM sites")
+	rows, err := s.db.Query("SELECT id, COALESCE(name, url), url, COALESCE(type, 'http'), COALESCE(token, ''), interval, alert_id, check_ssl, threshold, max_retries, COALESCE(hostname, ''), COALESCE(port, 0), COALESCE(timeout, 0), COALESCE(method, 'GET'), COALESCE(description, ''), COALESCE(parent_id, 0), COALESCE(accepted_codes, '200-299'), COALESCE(dns_resolve_type, ''), COALESCE(dns_server, ''), COALESCE(ignore_tls, 0) FROM sites")
 	if err != nil {
 		return []models.Site{}
 	}
@@ -68,25 +98,29 @@ func (s *SQLiteStore) GetSites() []models.Site {
 	var sites []models.Site
 	for rows.Next() {
 		var st models.Site
-		rows.Scan(&st.ID, &st.Name, &st.URL, &st.Type, &st.Token, &st.Interval, &st.AlertID, &st.CheckSSL, &st.ExpiryThreshold, &st.MaxRetries)
+		rows.Scan(&st.ID, &st.Name, &st.URL, &st.Type, &st.Token, &st.Interval, &st.AlertID, &st.CheckSSL, &st.ExpiryThreshold, &st.MaxRetries, &st.Hostname, &st.Port, &st.Timeout, &st.Method, &st.Description, &st.ParentID, &st.AcceptedCodes, &st.DNSResolveType, &st.DNSServer, &st.IgnoreTLS)
 		sites = append(sites, st)
 	}
 	return sites
 }
-func (s *SQLiteStore) AddSite(name, url, sType string, interval, alertID int, checkSSL bool, threshold, retries int) {
+func (s *SQLiteStore) AddSite(site models.Site) {
 	token := ""
-	if sType == "push" {
+	if site.Type == "push" {
 		token = generateToken()
 	}
-	s.db.Exec("INSERT INTO sites (name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", name, url, sType, token, interval, alertID, checkSSL, threshold, retries)
+	s.db.Exec("INSERT INTO sites (name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries, hostname, port, timeout, method, description, parent_id, accepted_codes, dns_resolve_type, dns_server, ignore_tls) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		site.Name, site.URL, site.Type, token, site.Interval, site.AlertID, site.CheckSSL, site.ExpiryThreshold, site.MaxRetries,
+		site.Hostname, site.Port, site.Timeout, site.Method, site.Description, site.ParentID, site.AcceptedCodes, site.DNSResolveType, site.DNSServer, site.IgnoreTLS)
 }
-func (s *SQLiteStore) UpdateSite(id int, name, url, sType string, interval, alertID int, checkSSL bool, threshold, retries int) {
+func (s *SQLiteStore) UpdateSite(site models.Site) {
 	var existingToken string
-	s.db.QueryRow("SELECT token FROM sites WHERE id=?", id).Scan(&existingToken)
-	if sType == "push" && existingToken == "" {
+	s.db.QueryRow("SELECT token FROM sites WHERE id=?", site.ID).Scan(&existingToken)
+	if site.Type == "push" && existingToken == "" {
 		existingToken = generateToken()
 	}
-	s.db.Exec("UPDATE sites SET name=?, url=?, type=?, token=?, interval=?, alert_id=?, check_ssl=?, threshold=?, max_retries=? WHERE id=?", name, url, sType, existingToken, interval, alertID, checkSSL, threshold, retries, id)
+	s.db.Exec("UPDATE sites SET name=?, url=?, type=?, token=?, interval=?, alert_id=?, check_ssl=?, threshold=?, max_retries=?, hostname=?, port=?, timeout=?, method=?, description=?, parent_id=?, accepted_codes=?, dns_resolve_type=?, dns_server=?, ignore_tls=? WHERE id=?",
+		site.Name, site.URL, site.Type, existingToken, site.Interval, site.AlertID, site.CheckSSL, site.ExpiryThreshold, site.MaxRetries,
+		site.Hostname, site.Port, site.Timeout, site.Method, site.Description, site.ParentID, site.AcceptedCodes, site.DNSResolveType, site.DNSServer, site.IgnoreTLS, site.ID)
 }
 func (s *SQLiteStore) DeleteSite(id int) {
 	s.db.Exec("DELETE FROM sites WHERE id=?", id)
@@ -198,8 +232,9 @@ func (s *SQLiteStore) ImportData(data models.Backup) error {
 		tx.Exec("INSERT INTO alerts (id, name, type, settings) VALUES (?, ?, ?, ?)", a.ID, a.Name, a.Type, string(jsonBytes))
 	}
 	for _, st := range data.Sites {
-		tx.Exec("INSERT INTO sites (id, name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			st.ID, st.Name, st.URL, st.Type, st.Token, st.Interval, st.AlertID, st.CheckSSL, st.ExpiryThreshold, st.MaxRetries)
+		tx.Exec("INSERT INTO sites (id, name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries, hostname, port, timeout, method, description, parent_id, accepted_codes, dns_resolve_type, dns_server, ignore_tls) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			st.ID, st.Name, st.URL, st.Type, st.Token, st.Interval, st.AlertID, st.CheckSSL, st.ExpiryThreshold, st.MaxRetries,
+			st.Hostname, st.Port, st.Timeout, st.Method, st.Description, st.ParentID, st.AcceptedCodes, st.DNSResolveType, st.DNSServer, st.IgnoreTLS)
 	}
 
 	return tx.Commit()

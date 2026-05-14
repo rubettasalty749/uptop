@@ -135,19 +135,29 @@ func StartEngine() {
 	}()
 }
 
-func UpdateSiteConfig(id int, name, url, sType string, interval, alertID int, checkSSL bool, threshold, retries int) {
+func UpdateSiteConfig(site models.Site) {
 	Mutex.Lock()
 	defer Mutex.Unlock()
-	if s, ok := LiveState[id]; ok {
-		s.Name = name
-		s.URL = url
-		s.Type = sType
-		s.Interval = interval
-		s.AlertID = alertID
-		s.CheckSSL = checkSSL
-		s.ExpiryThreshold = threshold
-		s.MaxRetries = retries
-		LiveState[id] = s
+	if s, ok := LiveState[site.ID]; ok {
+		s.Name = site.Name
+		s.URL = site.URL
+		s.Type = site.Type
+		s.Interval = site.Interval
+		s.AlertID = site.AlertID
+		s.CheckSSL = site.CheckSSL
+		s.ExpiryThreshold = site.ExpiryThreshold
+		s.MaxRetries = site.MaxRetries
+		s.Hostname = site.Hostname
+		s.Port = site.Port
+		s.Timeout = site.Timeout
+		s.Method = site.Method
+		s.Description = site.Description
+		s.ParentID = site.ParentID
+		s.AcceptedCodes = site.AcceptedCodes
+		s.DNSResolveType = site.DNSResolveType
+		s.DNSServer = site.DNSServer
+		s.IgnoreTLS = site.IgnoreTLS
+		LiveState[site.ID] = s
 	}
 }
 
@@ -194,10 +204,15 @@ func checkByID(id int) {
 	if !exists {
 		return
 	}
-	if site.Type == "http" {
+	switch site.Type {
+	case "http":
 		checkHTTP(site)
-	} else {
+	case "push":
 		checkPush(site)
+	case "ping", "port", "dns":
+		AddLog(fmt.Sprintf("Monitor '%s' type '%s' not yet implemented", site.Name, site.Type))
+	case "group":
+		// groups don't perform checks
 	}
 }
 
@@ -214,7 +229,12 @@ func checkPush(site models.Site) {
 
 func checkHTTP(site models.Site) {
 	start := time.Now()
-	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: insecureSkipVerify}}}
+	timeout := time.Duration(site.Timeout) * time.Second
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	skipTLS := insecureSkipVerify || site.IgnoreTLS
+	client := &http.Client{Timeout: timeout, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: skipTLS}}}
 	resp, err := client.Get(site.URL)
 	latency := time.Since(start)
 

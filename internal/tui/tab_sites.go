@@ -35,18 +35,23 @@ var (
 	siteBorderStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#444"))
 
-	siteColWidths = []int{4, 16, 8, 9, 8, 22, 10, 6}
+	siteColWidths = []int{4, 14, 6, 8, 9, 8, 20, 10, 6}
 )
 
 type siteFormData struct {
-	Name      string
-	SiteType  string
-	URL       string
-	Interval  string
-	AlertID   string
-	CheckSSL  bool
-	Threshold string
-	Retries   string
+	Name        string
+	SiteType    string
+	URL         string
+	Interval    string
+	AlertID     string
+	CheckSSL    bool
+	Threshold   string
+	Retries     string
+	Hostname    string
+	Port        string
+	Timeout     string
+	Description string
+	IgnoreTLS   bool
 }
 
 func latencySparkline(latencies []time.Duration, width int) string {
@@ -229,7 +234,8 @@ func (m Model) viewSitesTab() string {
 
 		rows = append(rows, []string{
 			strconv.Itoa(site.ID),
-			m.zones.Mark(fmt.Sprintf("site-%d", i), limitStr(site.Name, 15)),
+			m.zones.Mark(fmt.Sprintf("site-%d", i), limitStr(site.Name, 13)),
+			site.Type,
 			fmtStatus(site.Status),
 			fmtLatency(site.Latency),
 			fmtUptime(hist.TotalChecks, hist.UpChecks),
@@ -242,7 +248,7 @@ func (m Model) viewSitesTab() string {
 	t := table.New().
 		Border(lipgloss.RoundedBorder()).
 		BorderStyle(siteBorderStyle).
-		Headers("ID", "NAME", "STATUS", "LATENCY", "UPTIME", "HISTORY", "SSL", "RETRY").
+		Headers("ID", "NAME", "TYPE", "STATUS", "LATENCY", "UPTIME", "HISTORY", "SSL", "RETRY").
 		Rows(rows...).
 		StyleFunc(func(row, col int) lipgloss.Style {
 			if row == table.HeaderRow {
@@ -271,6 +277,8 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 		Interval:  "60",
 		Threshold: "7",
 		Retries:   "0",
+		Timeout:   "5",
+		Port:      "0",
 	}
 
 	if m.editID > 0 {
@@ -284,6 +292,11 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				m.siteFormData.CheckSSL = site.CheckSSL
 				m.siteFormData.Threshold = strconv.Itoa(site.ExpiryThreshold)
 				m.siteFormData.Retries = strconv.Itoa(site.MaxRetries)
+				m.siteFormData.Hostname = site.Hostname
+				m.siteFormData.Port = strconv.Itoa(site.Port)
+				m.siteFormData.Timeout = strconv.Itoa(site.Timeout)
+				m.siteFormData.Description = site.Description
+				m.siteFormData.IgnoreTLS = site.IgnoreTLS
 				break
 			}
 		}
@@ -314,6 +327,10 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				Options(
 					huh.NewOption("HTTP/HTTPS", "http"),
 					huh.NewOption("Push / Heartbeat", "push"),
+					huh.NewOption("Ping (ICMP)", "ping"),
+					huh.NewOption("TCP Port", "port"),
+					huh.NewOption("DNS", "dns"),
+					huh.NewOption("Group", "group"),
 				).Value(&m.siteFormData.SiteType),
 			huh.NewInput().Title("URL").
 				Placeholder("https://example.com").
@@ -346,6 +363,22 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				Value(&m.siteFormData.AlertID),
 		).Title("Monitor Settings"),
 		huh.NewGroup(
+			huh.NewInput().Title("Hostname / IP").
+				Placeholder("10.0.0.1").
+				Description("Target for ping/port/DNS monitors").
+				Value(&m.siteFormData.Hostname),
+			huh.NewInput().Title("Port").
+				Placeholder("0").
+				Description("Target port for TCP port monitors").
+				Value(&m.siteFormData.Port),
+			huh.NewInput().Title("Timeout (seconds)").
+				Placeholder("5").
+				Value(&m.siteFormData.Timeout),
+			huh.NewInput().Title("Description").
+				Placeholder("Optional description").
+				Value(&m.siteFormData.Description),
+		).Title("Connection"),
+		huh.NewGroup(
 			huh.NewConfirm().Title("Monitor SSL Certificate?").
 				Value(&m.siteFormData.CheckSSL),
 			huh.NewInput().Title("SSL Warning Threshold (days)").
@@ -354,6 +387,8 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 			huh.NewInput().Title("Max Retries Before Alert").
 				Placeholder("0").
 				Value(&m.siteFormData.Retries),
+			huh.NewConfirm().Title("Ignore TLS Errors?").
+				Value(&m.siteFormData.IgnoreTLS),
 		).Title("Advanced"),
 	).WithTheme(huh.ThemeDracula())
 
@@ -366,6 +401,8 @@ func (m *Model) submitSiteForm() {
 	alertID, _ := strconv.Atoi(d.AlertID)
 	threshold, _ := strconv.Atoi(d.Threshold)
 	retries, _ := strconv.Atoi(d.Retries)
+	port, _ := strconv.Atoi(d.Port)
+	timeout, _ := strconv.Atoi(d.Timeout)
 	if interval < 1 {
 		interval = 60
 	}
@@ -373,11 +410,28 @@ func (m *Model) submitSiteForm() {
 		threshold = 7
 	}
 
+	site := models.Site{
+		ID:              m.editID,
+		Name:            d.Name,
+		URL:             d.URL,
+		Type:            d.SiteType,
+		Interval:        interval,
+		AlertID:         alertID,
+		CheckSSL:        d.CheckSSL,
+		ExpiryThreshold: threshold,
+		MaxRetries:      retries,
+		Hostname:        d.Hostname,
+		Port:            port,
+		Timeout:         timeout,
+		Description:     d.Description,
+		IgnoreTLS:       d.IgnoreTLS,
+	}
+
 	if m.editID > 0 {
-		store.Get().UpdateSite(m.editID, d.Name, d.URL, d.SiteType, interval, alertID, d.CheckSSL, threshold, retries)
-		monitor.UpdateSiteConfig(m.editID, d.Name, d.URL, d.SiteType, interval, alertID, d.CheckSSL, threshold, retries)
+		store.Get().UpdateSite(site)
+		monitor.UpdateSiteConfig(site)
 	} else {
-		store.Get().AddSite(d.Name, d.URL, d.SiteType, interval, alertID, d.CheckSSL, threshold, retries)
+		store.Get().AddSite(site)
 	}
 	m.state = stateDashboard
 }

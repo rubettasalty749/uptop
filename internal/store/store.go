@@ -9,8 +9,8 @@ type Store interface {
 
 	// Sites
 	GetSites() []models.Site
-	AddSite(name, url, sType string, interval, alertID int, checkSSL bool, threshold, retries int)
-	UpdateSite(id int, name, url, sType string, interval, alertID int, checkSSL bool, threshold, retries int)
+	AddSite(site models.Site)
+	UpdateSite(site models.Site)
 	DeleteSite(id int)
 
 	// Alerts

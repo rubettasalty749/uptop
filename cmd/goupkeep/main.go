@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"go-upkeep/internal/cluster"
+	"go-upkeep/internal/models"
 	"go-upkeep/internal/monitor"
 	"go-upkeep/internal/server"
 	"go-upkeep/internal/store"
@@ -166,14 +167,16 @@ func seedDemoData(s store.Store) {
 		alertID = alerts[0].ID
 	}
 
-	s.AddSite("Google", "https://www.google.com", "http", 30, alertID, true, 14, 2)
-	s.AddSite("GitHub", "https://github.com", "http", 30, alertID, true, 7, 3)
-	s.AddSite("Cloudflare DNS", "https://1.1.1.1", "http", 60, alertID, false, 7, 1)
-	s.AddSite("JSON Placeholder", "https://jsonplaceholder.typicode.com/posts/1", "http", 45, alertID, false, 7, 2)
-	s.AddSite("Nonexistent Site", "https://this-domain-does-not-exist-12345.com", "http", 30, alertID, false, 7, 3)
-	s.AddSite("Bad Port", "https://localhost:19999", "http", 30, 0, false, 7, 1)
-	s.AddSite("Backup Cron", "", "push", 300, alertID, false, 7, 0)
-	s.AddSite("DB Healthcheck", "", "push", 120, alertID, false, 7, 0)
+	s.AddSite(models.Site{Name: "Google", URL: "https://www.google.com", Type: "http", Interval: 30, AlertID: alertID, CheckSSL: true, ExpiryThreshold: 14, MaxRetries: 2})
+	s.AddSite(models.Site{Name: "GitHub", URL: "https://github.com", Type: "http", Interval: 30, AlertID: alertID, CheckSSL: true, ExpiryThreshold: 7, MaxRetries: 3})
+	s.AddSite(models.Site{Name: "Cloudflare DNS", URL: "https://1.1.1.1", Type: "http", Interval: 60, AlertID: alertID, ExpiryThreshold: 7, MaxRetries: 1})
+	s.AddSite(models.Site{Name: "JSON Placeholder", URL: "https://jsonplaceholder.typicode.com/posts/1", Type: "http", Interval: 45, AlertID: alertID, ExpiryThreshold: 7, MaxRetries: 2})
+	s.AddSite(models.Site{Name: "Nonexistent Site", URL: "https://this-domain-does-not-exist-12345.com", Type: "http", Interval: 30, AlertID: alertID, ExpiryThreshold: 7, MaxRetries: 3})
+	s.AddSite(models.Site{Name: "Bad Port", URL: "https://localhost:19999", Type: "http", Interval: 30, ExpiryThreshold: 7, MaxRetries: 1})
+	s.AddSite(models.Site{Name: "Backup Cron", Type: "push", Interval: 300, AlertID: alertID, ExpiryThreshold: 7})
+	s.AddSite(models.Site{Name: "DB Healthcheck", Type: "push", Interval: 120, AlertID: alertID, ExpiryThreshold: 7})
+	s.AddSite(models.Site{Name: "Gateway", Type: "ping", Interval: 30, AlertID: alertID, Hostname: "10.0.0.1", Timeout: 5, ExpiryThreshold: 7})
+	s.AddSite(models.Site{Name: "SSH Server", Type: "port", Interval: 60, AlertID: alertID, Hostname: "10.0.0.1", Port: 22, Timeout: 5, ExpiryThreshold: 7})
 }
 
 func isKeyAllowed(incomingKey ssh.PublicKey) bool {
