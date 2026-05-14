@@ -7,6 +7,7 @@ import (
 	"go-upkeep/internal/models"
 	"net/http"
 	"net/smtp"
+	"strings"
 	"time"
 )
 
@@ -37,6 +38,18 @@ func GetProvider(cfg models.AlertConfig) Provider {
 			Pass: cfg.Settings["pass"],
 			To:   cfg.Settings["to"],
 			From: cfg.Settings["from"],
+		}
+	case "ntfy":
+		priority := "3"
+		if p, ok := cfg.Settings["priority"]; ok && p != "" {
+			priority = p
+		}
+		return &NtfyProvider{
+			ServerURL: cfg.Settings["url"],
+			Topic:     cfg.Settings["topic"],
+			Priority:  priority,
+			Username:  cfg.Settings["username"],
+			Password:  cfg.Settings["password"],
 		}
 	default:
 		return nil
@@ -101,4 +114,31 @@ func (e *EmailProvider) Send(title, message string) error {
 		"\r\n" +
 		message + "\r\n")
 	return smtp.SendMail(e.Host+":"+e.Port, auth, e.From, []string{e.To}, msg)
+}
+
+type NtfyProvider struct {
+	ServerURL string
+	Topic     string
+	Priority  string
+	Username  string
+	Password  string
+}
+
+func (n *NtfyProvider) Send(title, message string) error {
+	url := strings.TrimRight(n.ServerURL, "/") + "/" + n.Topic
+	req, err := http.NewRequest("POST", url, strings.NewReader(message))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Title", title)
+	req.Header.Set("Priority", n.Priority)
+	if n.Username != "" && n.Password != "" {
+		req.SetBasicAuth(n.Username, n.Password)
+	}
+	resp, err := alertClient.Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
 }

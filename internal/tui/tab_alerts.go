@@ -40,6 +40,11 @@ type alertFormData struct {
 	SMTPPass   string
 	EmailFrom  string
 	EmailTo    string
+	NtfyURL    string
+	NtfyTopic  string
+	NtfyUser   string
+	NtfyPass   string
+	NtfyPri    string
 }
 
 func fmtAlertType(t string) string {
@@ -52,6 +57,8 @@ func fmtAlertType(t string) string {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#F0E442")).Render(t)
 	case "email":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#73F59F")).Render(t)
+	case "ntfy":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B")).Render(t)
 	default:
 		return t
 	}
@@ -61,7 +68,8 @@ func fmtAlertConfig(alert struct {
 	Type     string
 	Settings map[string]string
 }) string {
-	if alert.Type == "email" {
+	switch alert.Type {
+	case "email":
 		host := alert.Settings["host"]
 		to := alert.Settings["to"]
 		if host != "" && to != "" {
@@ -71,11 +79,19 @@ func fmtAlertConfig(alert struct {
 			return limitStr(host, 34)
 		}
 		return subtleStyle.Render("—")
+	case "ntfy":
+		topic := alert.Settings["topic"]
+		url := alert.Settings["url"]
+		if url != "" && topic != "" {
+			return limitStr(fmt.Sprintf("%s/%s", url, topic), 34)
+		}
+		return subtleStyle.Render("—")
+	default:
+		if val, ok := alert.Settings["url"]; ok {
+			return limitStr(val, 34)
+		}
+		return subtleStyle.Render("—")
 	}
-	if val, ok := alert.Settings["url"]; ok {
-		return limitStr(val, 34)
-	}
-	return subtleStyle.Render("—")
 }
 
 func (m Model) viewAlertsTab() string {
@@ -133,6 +149,7 @@ func (m Model) viewAlertsTab() string {
 func (m *Model) initAlertHuhForm() tea.Cmd {
 	m.alertFormData = &alertFormData{
 		AlertType: "discord",
+		NtfyPri:   "3",
 	}
 
 	if m.editID > 0 {
@@ -143,13 +160,20 @@ func (m *Model) initAlertHuhForm() tea.Cmd {
 				if url, ok := alert.Settings["url"]; ok {
 					m.alertFormData.WebhookURL = url
 				}
-				if alert.Type == "email" {
+				switch alert.Type {
+				case "email":
 					m.alertFormData.SMTPHost = alert.Settings["host"]
 					m.alertFormData.SMTPPort = alert.Settings["port"]
 					m.alertFormData.SMTPUser = alert.Settings["user"]
 					m.alertFormData.SMTPPass = alert.Settings["pass"]
 					m.alertFormData.EmailFrom = alert.Settings["from"]
 					m.alertFormData.EmailTo = alert.Settings["to"]
+				case "ntfy":
+					m.alertFormData.NtfyURL = alert.Settings["url"]
+					m.alertFormData.NtfyTopic = alert.Settings["topic"]
+					m.alertFormData.NtfyUser = alert.Settings["username"]
+					m.alertFormData.NtfyPass = alert.Settings["password"]
+					m.alertFormData.NtfyPri = alert.Settings["priority"]
 				}
 				break
 			}
@@ -173,6 +197,7 @@ func (m *Model) initAlertHuhForm() tea.Cmd {
 					huh.NewOption("Slack", "slack"),
 					huh.NewOption("Webhook", "webhook"),
 					huh.NewOption("Email (SMTP)", "email"),
+					huh.NewOption("Ntfy", "ntfy"),
 				).Value(&m.alertFormData.AlertType),
 		).Title("Alert Config"),
 		huh.NewGroup(
@@ -180,7 +205,31 @@ func (m *Model) initAlertHuhForm() tea.Cmd {
 				Placeholder("https://discord.com/api/webhooks/...").
 				Value(&m.alertFormData.WebhookURL),
 		).Title("Webhook").WithHideFunc(func() bool {
-			return m.alertFormData.AlertType == "email"
+			return m.alertFormData.AlertType == "email" || m.alertFormData.AlertType == "ntfy"
+		}),
+		huh.NewGroup(
+			huh.NewInput().Title("Ntfy Server URL").
+				Placeholder("https://ntfy.sh").
+				Value(&m.alertFormData.NtfyURL),
+			huh.NewInput().Title("Topic").
+				Placeholder("my-alerts").
+				Value(&m.alertFormData.NtfyTopic),
+			huh.NewSelect[string]().Title("Priority").
+				Options(
+					huh.NewOption("Min (1)", "1"),
+					huh.NewOption("Low (2)", "2"),
+					huh.NewOption("Default (3)", "3"),
+					huh.NewOption("High (4)", "4"),
+					huh.NewOption("Urgent (5)", "5"),
+				).Value(&m.alertFormData.NtfyPri),
+			huh.NewInput().Title("Username (optional)").
+				Placeholder("admin").
+				Value(&m.alertFormData.NtfyUser),
+			huh.NewInput().Title("Password (optional)").
+				EchoMode(huh.EchoModePassword).
+				Value(&m.alertFormData.NtfyPass),
+		).Title("Ntfy Settings").WithHideFunc(func() bool {
+			return m.alertFormData.AlertType != "ntfy"
 		}),
 		huh.NewGroup(
 			huh.NewInput().Title("SMTP Host").
@@ -213,14 +262,21 @@ func (m *Model) submitAlertForm() {
 	d := m.alertFormData
 	settings := make(map[string]string)
 
-	if d.AlertType == "email" {
+	switch d.AlertType {
+	case "email":
 		settings["host"] = d.SMTPHost
 		settings["port"] = d.SMTPPort
 		settings["user"] = d.SMTPUser
 		settings["pass"] = d.SMTPPass
 		settings["from"] = d.EmailFrom
 		settings["to"] = d.EmailTo
-	} else {
+	case "ntfy":
+		settings["url"] = d.NtfyURL
+		settings["topic"] = d.NtfyTopic
+		settings["priority"] = d.NtfyPri
+		settings["username"] = d.NtfyUser
+		settings["password"] = d.NtfyPass
+	default:
 		settings["url"] = d.WebhookURL
 	}
 
