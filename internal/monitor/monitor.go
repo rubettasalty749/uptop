@@ -6,9 +6,14 @@ import (
 	"go-upkeep/internal/alert"
 	"go-upkeep/internal/models"
 	"go-upkeep/internal/store"
+	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
+
+	"github.com/miekg/dns"
+	probing "github.com/prometheus-community/pro-bing"
 )
 
 // --- LOGGING ---
@@ -209,8 +214,12 @@ func checkByID(id int) {
 		checkHTTP(site)
 	case "push":
 		checkPush(site)
-	case "ping", "port", "dns":
-		AddLog(fmt.Sprintf("Monitor '%s' type '%s' not yet implemented", site.Name, site.Type))
+	case "ping":
+		checkPing(site)
+	case "port":
+		checkPort(site)
+	case "dns":
+		checkDNS(site)
 	case "group":
 		// groups don't perform checks
 	}
@@ -338,4 +347,132 @@ func triggerAlert(alertID int, title, message string) {
 	if provider != nil {
 		go func() { provider.Send(title, message) }()
 	}
+}
+
+func siteTimeout(site models.Site) time.Duration {
+	if site.Timeout > 0 {
+		return time.Duration(site.Timeout) * time.Second
+	}
+	return 5 * time.Second
+}
+
+func checkPing(site models.Site) {
+	host := site.Hostname
+	if host == "" {
+		host = site.URL
+	}
+
+	pinger, err := probing.NewPinger(host)
+	if err != nil {
+		handleStatusChange(site, "DOWN", 0, 0)
+		AddLog(fmt.Sprintf("Ping '%s' resolve failed: %v", site.Name, err))
+		return
+	}
+	pinger.Count = 1
+	pinger.Timeout = siteTimeout(site)
+	pinger.SetPrivileged(false)
+
+	start := time.Now()
+	err = pinger.Run()
+	latency := time.Since(start)
+
+	if err != nil || pinger.Statistics().PacketsRecv == 0 {
+		updatedSite := site
+		updatedSite.Latency = latency
+		updatedSite.LastCheck = time.Now()
+		handleStatusChange(updatedSite, "DOWN", 0, latency)
+		return
+	}
+
+	stats := pinger.Statistics()
+	updatedSite := site
+	updatedSite.Latency = stats.AvgRtt
+	updatedSite.LastCheck = time.Now()
+	handleStatusChange(updatedSite, "UP", 0, stats.AvgRtt)
+}
+
+func checkPort(site models.Site) {
+	host := site.Hostname
+	if host == "" {
+		host = site.URL
+	}
+	addr := net.JoinHostPort(host, strconv.Itoa(site.Port))
+	timeout := siteTimeout(site)
+
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", addr, timeout)
+	latency := time.Since(start)
+
+	updatedSite := site
+	updatedSite.Latency = latency
+	updatedSite.LastCheck = time.Now()
+
+	if err != nil {
+		handleStatusChange(updatedSite, "DOWN", 0, latency)
+		return
+	}
+	conn.Close()
+	handleStatusChange(updatedSite, "UP", 0, latency)
+}
+
+func checkDNS(site models.Site) {
+	host := site.Hostname
+	if host == "" {
+		host = site.URL
+	}
+
+	server := site.DNSServer
+	if server == "" {
+		server = "1.1.1.1"
+	}
+	if _, _, err := net.SplitHostPort(server); err != nil {
+		server = net.JoinHostPort(server, "53")
+	}
+
+	qtype := dns.TypeA
+	switch site.DNSResolveType {
+	case "AAAA":
+		qtype = dns.TypeAAAA
+	case "MX":
+		qtype = dns.TypeMX
+	case "CNAME":
+		qtype = dns.TypeCNAME
+	case "TXT":
+		qtype = dns.TypeTXT
+	case "NS":
+		qtype = dns.TypeNS
+	case "SOA":
+		qtype = dns.TypeSOA
+	case "SRV":
+		qtype = dns.TypeSRV
+	case "PTR":
+		qtype = dns.TypePTR
+	}
+
+	m := new(dns.Msg)
+	m.SetQuestion(dns.Fqdn(host), qtype)
+
+	c := new(dns.Client)
+	c.Timeout = siteTimeout(site)
+
+	start := time.Now()
+	r, rtt, err := c.Exchange(m, server)
+	_ = rtt
+	latency := time.Since(start)
+
+	updatedSite := site
+	updatedSite.Latency = latency
+	updatedSite.LastCheck = time.Now()
+
+	if err != nil {
+		handleStatusChange(updatedSite, "DOWN", 0, latency)
+		return
+	}
+
+	if r.Rcode != dns.RcodeSuccess {
+		handleStatusChange(updatedSite, "DOWN", r.Rcode, latency)
+		return
+	}
+
+	handleStatusChange(updatedSite, "UP", 0, latency)
 }
