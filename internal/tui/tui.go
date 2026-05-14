@@ -19,7 +19,7 @@ import (
 )
 
 var (
-	subtleStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#383838"})
+	subtleStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#9ca0b0", Dark: "#565f89"})
 	specialStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#43BF6D", Dark: "#73F59F"})
 	warnStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#F0E442", Dark: "#F0E442"})
 	dangerStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#F25D94", Dark: "#F25D94"})
@@ -48,6 +48,8 @@ type Model struct {
 	cursor       int
 	tableOffset  int
 	maxTableRows int
+	termWidth    int
+	termHeight   int
 	editID       int
 	editToken    string
 
@@ -126,6 +128,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		m.termWidth = msg.Width
+		m.termHeight = msg.Height
 		m.maxTableRows = msg.Height - 12
 		if m.maxTableRows < 1 {
 			m.maxTableRows = 1
@@ -254,6 +258,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.editID = m.users[m.cursor].ID
 					m.state = stateFormUser
 					return m, m.initUserHuhForm()
+				}
+			case "p":
+				if m.currentTab == 0 && len(m.sites) > 0 {
+					site := m.sites[m.cursor]
+					monitor.ToggleSitePause(site.ID)
+					site.Paused = !site.Paused
+					if store.Get() != nil {
+						store.Get().UpdateSitePaused(site.ID, site.Paused)
+					}
+					m.refreshData()
 				}
 			case "d", "backspace":
 				if m.currentTab == 1 && len(m.alerts) > 0 {
@@ -476,11 +490,15 @@ func (m Model) viewDashboard() string {
 		}
 	}
 
-	footer := subtleStyle.Render("\n[n] New  [e/Enter] Edit  [d] Delete  [Tab/Click] Switch  [Ctrl+L] Clear  [q] Quit")
+	footer := subtleStyle.Render("\n[n] New  [e/Enter] Edit  [d] Delete  [p] Pause  [Tab/Click] Switch  [Ctrl+L] Clear  [q] Quit")
 	if m.currentTab == 3 {
 		footer = subtleStyle.Render("\n[n] Add User  [d] Revoke  [Tab/Click] Switch  [Ctrl+L] Clear  [q] Quit")
 	}
-	return lipgloss.NewStyle().Padding(1, 2).Render(header + "\n" + content + "\n" + footer)
+	s := lipgloss.NewStyle().Padding(1, 2)
+	if m.termHeight > 0 {
+		s = s.MaxHeight(m.termHeight)
+	}
+	return s.Render(header + "\n" + content + "\n" + footer)
 }
 
 func limitStr(text string, max int) string {

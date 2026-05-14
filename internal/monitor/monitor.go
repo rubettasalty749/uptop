@@ -162,6 +162,7 @@ func UpdateSiteConfig(site models.Site) {
 		s.DNSResolveType = site.DNSResolveType
 		s.DNSServer = site.DNSServer
 		s.IgnoreTLS = site.IgnoreTLS
+		s.Paused = site.Paused
 		LiveState[site.ID] = s
 	}
 }
@@ -173,10 +174,26 @@ func RemoveSite(id int) {
 	RemoveHistory(id)
 }
 
+func ToggleSitePause(id int) bool {
+	Mutex.Lock()
+	defer Mutex.Unlock()
+	site, ok := LiveState[id]
+	if !ok {
+		return false
+	}
+	site.Paused = !site.Paused
+	LiveState[id] = site
+	if site.Paused {
+		AddLog(fmt.Sprintf("Monitor '%s' paused", site.Name))
+	} else {
+		AddLog(fmt.Sprintf("Monitor '%s' resumed", site.Name))
+	}
+	return site.Paused
+}
+
 func monitorRoutine(id int) {
 	checkByID(id)
 	for {
-		// If paused, just sleep loop to keep goroutine alive but idle
 		if !IsEngineActive() {
 			time.Sleep(5 * time.Second)
 			continue
@@ -187,6 +204,11 @@ func monitorRoutine(id int) {
 		Mutex.RUnlock()
 		if !exists {
 			return
+		}
+
+		if site.Paused {
+			time.Sleep(5 * time.Second)
+			continue
 		}
 
 		interval := site.Interval
@@ -206,7 +228,7 @@ func checkByID(id int) {
 	Mutex.RLock()
 	site, exists := LiveState[id]
 	Mutex.RUnlock()
-	if !exists {
+	if !exists || site.Paused {
 		return
 	}
 	switch site.Type {

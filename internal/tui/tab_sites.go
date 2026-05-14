@@ -34,8 +34,6 @@ var (
 
 	siteBorderStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#444"))
-
-	siteColWidths = []int{4, 14, 6, 8, 9, 8, 20, 10, 6}
 )
 
 type siteFormData struct {
@@ -195,7 +193,10 @@ func fmtRetries(site models.Site) string {
 	return s
 }
 
-func fmtStatus(status string) string {
+func fmtStatus(status string, paused bool) string {
+	if paused {
+		return warnStyle.Render("PAUSED")
+	}
 	switch {
 	case status == "DOWN" || status == "SSL EXP":
 		return dangerStyle.Render(status)
@@ -236,7 +237,7 @@ func (m Model) viewSitesTab() string {
 			strconv.Itoa(site.ID),
 			m.zones.Mark(fmt.Sprintf("site-%d", i), limitStr(site.Name, 13)),
 			site.Type,
-			fmtStatus(site.Status),
+			fmtStatus(site.Status, site.Paused),
 			fmtLatency(site.Latency),
 			fmtUptime(hist.TotalChecks, hist.UpChecks),
 			spark,
@@ -245,27 +246,25 @@ func (m Model) viewSitesTab() string {
 		})
 	}
 
+	tableWidth := m.termWidth - 6
+	if tableWidth < 40 {
+		tableWidth = 40
+	}
+
 	t := table.New().
 		Border(lipgloss.RoundedBorder()).
 		BorderStyle(siteBorderStyle).
+		Width(tableWidth).
 		Headers("ID", "NAME", "TYPE", "STATUS", "LATENCY", "UPTIME", "HISTORY", "SSL", "RETRY").
 		Rows(rows...).
 		StyleFunc(func(row, col int) lipgloss.Style {
 			if row == table.HeaderRow {
-				s := siteHeaderStyle
-				if col < len(siteColWidths) {
-					s = s.Width(siteColWidths[col])
-				}
-				return s
+				return siteHeaderStyle
 			}
-			s := siteCellStyle
 			if row == selectedVisual {
-				s = siteSelectedStyle
+				return siteSelectedStyle
 			}
-			if col < len(siteColWidths) {
-				s = s.Width(siteColWidths[col])
-			}
-			return s
+			return siteCellStyle
 		})
 
 	return "\n" + t.Render()
