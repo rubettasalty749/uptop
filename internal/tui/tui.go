@@ -146,6 +146,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 				return m.handleClick(msg)
 			}
+			if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
+				if m.state == stateLogs {
+					if msg.Button == tea.MouseButtonWheelUp {
+						m.logViewport.LineUp(3)
+					} else {
+						m.logViewport.LineDown(3)
+					}
+					return m, nil
+				}
+				listLen := len(m.sites)
+				if m.currentTab == 1 {
+					listLen = len(m.alerts)
+				} else if m.currentTab == 3 {
+					listLen = len(m.users)
+				}
+				if msg.Button == tea.MouseButtonWheelUp {
+					if m.cursor > 0 {
+						m.cursor--
+						if m.cursor < m.tableOffset {
+							m.tableOffset = m.cursor
+						}
+					}
+				} else {
+					if m.cursor < listLen-1 {
+						m.cursor++
+						if m.cursor >= m.tableOffset+m.maxTableRows {
+							m.tableOffset++
+						}
+					}
+				}
+				return m, nil
+			}
 		}
 
 	case tea.KeyMsg:
