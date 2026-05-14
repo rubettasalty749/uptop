@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"go-upkeep/internal/importer"
 	"go-upkeep/internal/models"
 	"go-upkeep/internal/monitor"
 	"go-upkeep/internal/store"
@@ -81,7 +82,30 @@ func Start(cfg ServerConfig) {
 		w.Write([]byte("Import Successful"))
 	})
 
-	// 5. Status Page
+	// 5. Kuma Import
+	mux.HandleFunc("/api/import/kuma", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "POST required", 405)
+			return
+		}
+		if cfg.ClusterKey == "" || r.Header.Get("X-Upkeep-Secret") != cfg.ClusterKey {
+			http.Error(w, "Unauthorized", 401)
+			return
+		}
+		var kb importer.KumaBackup
+		if err := json.NewDecoder(r.Body).Decode(&kb); err != nil {
+			http.Error(w, "Invalid Kuma JSON: "+err.Error(), 400)
+			return
+		}
+		backup := importer.ConvertKuma(&kb)
+		if err := store.Get().ImportData(backup); err != nil {
+			http.Error(w, "Import Failed: "+err.Error(), 500)
+			return
+		}
+		w.Write([]byte(fmt.Sprintf("Imported %d monitors, %d alerts from Kuma v%s", len(backup.Sites), len(backup.Alerts), kb.Version)))
+	})
+
+	// 6. Status Page
 	if cfg.EnableStatus {
 		mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) { renderStatusPage(w, cfg.Title) })
 		mux.HandleFunc("/status/json", func(w http.ResponseWriter, r *http.Request) {

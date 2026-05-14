@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"go-upkeep/internal/cluster"
+	"go-upkeep/internal/importer"
 	"go-upkeep/internal/models"
 	"go-upkeep/internal/monitor"
 	"go-upkeep/internal/server"
@@ -75,6 +76,7 @@ func main() {
 	flagDBType := flag.String("db-type", dbType, "Database type")
 	flagDSN := flag.String("dsn", dbDSN, "Database DSN")
 	demo := flag.Bool("demo", false, "Seed demo data")
+	importKuma := flag.String("import-kuma", "", "Import Uptime Kuma backup JSON file")
 	flag.Parse()
 
 	var s store.Store
@@ -94,6 +96,20 @@ func main() {
 
 	if *demo {
 		seedDemoData(s)
+	}
+
+	if *importKuma != "" {
+		kb, err := importer.LoadKumaFile(*importKuma)
+		if err != nil {
+			fmt.Printf("Kuma import error: %v\n", err)
+			os.Exit(1)
+		}
+		backup := importer.ConvertKuma(kb)
+		if err := s.ImportData(backup); err != nil {
+			fmt.Printf("Import failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Imported %d monitors and %d alerts from Uptime Kuma v%s\n", len(backup.Sites), len(backup.Alerts), kb.Version)
 	}
 
 	monitor.StartEngine()
