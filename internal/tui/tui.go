@@ -268,6 +268,19 @@ func (m *Model) handleClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if m.currentTab == 1 {
+		end := m.tableOffset + m.maxTableRows
+		if end > len(m.alerts) {
+			end = len(m.alerts)
+		}
+		for i := m.tableOffset; i < end; i++ {
+			if m.zones.Get(fmt.Sprintf("alert-%d", i)).InBounds(msg) {
+				m.cursor = i
+				return m, nil
+			}
+		}
+	}
+
 	if m.currentTab == 3 {
 		end := m.tableOffset + m.maxTableRows
 		if end > len(m.users) {

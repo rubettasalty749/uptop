@@ -4,10 +4,30 @@ import (
 	"fmt"
 	"go-upkeep/internal/store"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss/table"
+)
 
-	tea "github.com/charmbracelet/bubbletea"
+var (
+	alertHeaderStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#7D56F4")).
+				Bold(true).
+				Padding(0, 1)
+
+	alertCellStyle = lipgloss.NewStyle().Padding(0, 1)
+
+	alertSelectedStyle = lipgloss.NewStyle().
+				Padding(0, 1).
+				Bold(true).
+				Foreground(lipgloss.Color("#ffffff")).
+				Background(lipgloss.Color("#3b3b5c"))
+
+	alertBorderStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#444"))
+
+	alertColWidths = []int{4, 16, 10, 36}
 )
 
 type alertFormData struct {
@@ -22,34 +42,92 @@ type alertFormData struct {
 	EmailTo    string
 }
 
+func fmtAlertType(t string) string {
+	switch t {
+	case "discord":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#5865F2")).Render(t)
+	case "slack":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#E01E5A")).Render(t)
+	case "webhook":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#F0E442")).Render(t)
+	case "email":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#73F59F")).Render(t)
+	default:
+		return t
+	}
+}
+
+func fmtAlertConfig(alert struct {
+	Type     string
+	Settings map[string]string
+}) string {
+	if alert.Type == "email" {
+		host := alert.Settings["host"]
+		to := alert.Settings["to"]
+		if host != "" && to != "" {
+			return limitStr(fmt.Sprintf("%s → %s", host, to), 34)
+		}
+		if host != "" {
+			return limitStr(host, 34)
+		}
+		return subtleStyle.Render("—")
+	}
+	if val, ok := alert.Settings["url"]; ok {
+		return limitStr(val, 34)
+	}
+	return subtleStyle.Render("—")
+}
+
 func (m Model) viewAlertsTab() string {
-	var content string
-	content += fmt.Sprintf("\n%-3s %-15s %-10s %s\n", "ID", "NAME", "TYPE", "CONFIG")
-	content += subtleStyle.Render("----------------------------------------------------------------") + "\n"
+	if len(m.alerts) == 0 {
+		return "\n  No alert channels configured. Press [n] to add one."
+	}
+
 	end := m.tableOffset + m.maxTableRows
 	if end > len(m.alerts) {
 		end = len(m.alerts)
 	}
+
+	selectedVisual := m.cursor - m.tableOffset
+
+	var rows [][]string
 	for i := m.tableOffset; i < end; i++ {
 		alert := m.alerts[i]
-		cursor := " "
-		if m.cursor == i {
-			cursor = ">"
-		}
-		confStr := "settings..."
-		if val, ok := alert.Settings["url"]; ok {
-			confStr = limitStr(val, 30)
-		}
-		if alert.Type == "email" {
-			confStr = fmt.Sprintf("SMTP: %s", alert.Settings["host"])
-		}
-		row := fmt.Sprintf("%s %-3d %-15s %-10s %s", cursor, alert.ID, limitStr(alert.Name, 15), alert.Type, confStr)
-		if m.cursor == i {
-			row = lipgloss.NewStyle().Bold(true).Render(row)
-		}
-		content += row + "\n"
+		rows = append(rows, []string{
+			fmt.Sprintf("%d", alert.ID),
+			m.zones.Mark(fmt.Sprintf("alert-%d", i), limitStr(alert.Name, 15)),
+			fmtAlertType(alert.Type),
+			fmtAlertConfig(struct {
+				Type     string
+				Settings map[string]string
+			}{alert.Type, alert.Settings}),
+		})
 	}
-	return content
+
+	t := table.New().
+		Border(lipgloss.RoundedBorder()).
+		BorderStyle(alertBorderStyle).
+		Headers("ID", "NAME", "TYPE", "CONFIG").
+		Rows(rows...).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			if row == table.HeaderRow {
+				s := alertHeaderStyle
+				if col < len(alertColWidths) {
+					s = s.Width(alertColWidths[col])
+				}
+				return s
+			}
+			s := alertCellStyle
+			if row == selectedVisual {
+				s = alertSelectedStyle
+			}
+			if col < len(alertColWidths) {
+				s = s.Width(alertColWidths[col])
+			}
+			return s
+		})
+
+	return "\n" + t.Render()
 }
 
 func (m *Model) initAlertHuhForm() tea.Cmd {
