@@ -8,7 +8,6 @@ import (
 	"go-upkeep/internal/server"
 	"go-upkeep/internal/store"
 	"go-upkeep/internal/tui"
-	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -23,7 +22,7 @@ import (
 )
 
 func main() {
-	log.SetOutput(io.Discard)
+	log.SetOutput(os.Stderr)
 
 	portVal := 23234
 	dbType := "sqlite"
@@ -66,6 +65,9 @@ func main() {
 	}
 	if v := os.Getenv("UPKEEP_CLUSTER_SECRET"); v != "" {
 		clusterKey = v
+	}
+	if os.Getenv("UPKEEP_INSECURE_SKIP_VERIFY") == "true" {
+		monitor.SetInsecureSkipVerify(true)
 	}
 
 	port := flag.Int("port", portVal, "SSH Port")
@@ -153,8 +155,8 @@ func seedDemoData(s store.Store) {
 	s.AddAlert("Discord Ops", "discord", map[string]string{"url": "https://discord.com/api/webhooks/demo/token"})
 	s.AddAlert("Slack Infra", "slack", map[string]string{"url": "https://hooks.slack.com/services/DEMO/WEBHOOK"})
 	s.AddAlert("Email Oncall", "email", map[string]string{
-		"host": "smtp.gmail.com", "port": "587",
-		"user": "oncall@example.com", "pass": "hunter2",
+		"host": "smtp.example.com", "port": "587",
+		"user": "oncall@example.com", "pass": "replace-me",
 		"from": "oncall@example.com", "to": "team@example.com",
 	})
 

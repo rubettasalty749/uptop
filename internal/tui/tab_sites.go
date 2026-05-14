@@ -5,6 +5,7 @@ import (
 	"go-upkeep/internal/models"
 	"go-upkeep/internal/monitor"
 	"go-upkeep/internal/store"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -317,7 +318,26 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 			huh.NewInput().Title("URL").
 				Placeholder("https://example.com").
 				Description("Required for HTTP monitors").
-				Value(&m.siteFormData.URL),
+				Value(&m.siteFormData.URL).
+				Validate(func(s string) error {
+					if m.siteFormData.SiteType == "push" {
+						return nil
+					}
+					if s == "" {
+						return fmt.Errorf("URL is required for HTTP monitors")
+					}
+					u, err := url.Parse(s)
+					if err != nil {
+						return fmt.Errorf("invalid URL")
+					}
+					if u.Scheme != "http" && u.Scheme != "https" {
+						return fmt.Errorf("URL must start with http:// or https://")
+					}
+					if u.Host == "" {
+						return fmt.Errorf("URL must include a host")
+					}
+					return nil
+				}),
 			huh.NewInput().Title("Check Interval (seconds)").
 				Placeholder("60").
 				Value(&m.siteFormData.Interval),

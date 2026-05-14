@@ -45,7 +45,13 @@ var (
 	// Global Switch for HA
 	isActive    = true
 	activeMutex sync.RWMutex
+
+	insecureSkipVerify bool
 )
+
+func SetInsecureSkipVerify(skip bool) {
+	insecureSkipVerify = skip
+}
 
 func SetEngineActive(active bool) {
 	activeMutex.Lock()
@@ -208,7 +214,7 @@ func checkPush(site models.Site) {
 
 func checkHTTP(site models.Site) {
 	start := time.Now()
-	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: insecureSkipVerify}}}
 	resp, err := client.Get(site.URL)
 	latency := time.Since(start)
 

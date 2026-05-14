@@ -19,14 +19,21 @@ type ServerConfig struct {
 }
 
 func Start(cfg ServerConfig) {
+	if cfg.ClusterKey == "" {
+		fmt.Println("WARNING: No UPKEEP_CLUSTER_SECRET set. Cluster API endpoints are unauthenticated.")
+	}
 	mux := http.NewServeMux()
 
 	// 1. Push Heartbeat
 	mux.HandleFunc("/api/push", func(w http.ResponseWriter, r *http.Request) {
 		token := r.URL.Query().Get("token")
-		if token == "" { http.Error(w, "Missing token", 400); return }
+		if token == "" {
+			http.Error(w, "Missing token", 400)
+			return
+		}
 		if monitor.RecordHeartbeat(token) {
-			w.WriteHeader(http.StatusOK); w.Write([]byte("OK"))
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
 		} else {
 			http.Error(w, "Invalid Token", 404)
 		}
@@ -54,7 +61,10 @@ func Start(cfg ServerConfig) {
 
 	// 4. Config Import
 	mux.HandleFunc("/api/backup/import", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" { http.Error(w, "POST required", 405); return }
+		if r.Method != "POST" {
+			http.Error(w, "POST required", 405)
+			return
+		}
 		if cfg.ClusterKey == "" || r.Header.Get("X-Upkeep-Secret") != cfg.ClusterKey {
 			http.Error(w, "Unauthorized", 401)
 			return
@@ -75,7 +85,8 @@ func Start(cfg ServerConfig) {
 	if cfg.EnableStatus {
 		mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) { renderStatusPage(w, cfg.Title) })
 		mux.HandleFunc("/status/json", func(w http.ResponseWriter, r *http.Request) {
-			monitor.Mutex.RLock(); defer monitor.Mutex.RUnlock()
+			monitor.Mutex.RLock()
+			defer monitor.Mutex.RUnlock()
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(monitor.LiveState)
 		})
@@ -95,11 +106,15 @@ func renderStatusPage(w http.ResponseWriter, title string) {
 		sites = append(sites, s)
 	}
 	monitor.Mutex.RUnlock()
-	
+
 	sort.Slice(sites, func(i, j int) bool {
 		if sites[i].Status != sites[j].Status {
-			if sites[i].Status == "DOWN" { return true }
-			if sites[j].Status == "DOWN" { return false }
+			if sites[i].Status == "DOWN" {
+				return true
+			}
+			if sites[j].Status == "DOWN" {
+				return false
+			}
 		}
 		return sites[i].Name < sites[j].Name
 	})
@@ -148,6 +163,9 @@ func renderStatusPage(w http.ResponseWriter, title string) {
 	</html>`
 
 	t, _ := template.New("status").Parse(tpl)
-	data := struct { Title string; Sites []models.Site }{Title: title, Sites: sites}
+	data := struct {
+		Title string
+		Sites []models.Site
+	}{Title: title, Sites: sites}
 	t.Execute(w, data)
 }
