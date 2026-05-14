@@ -26,8 +26,6 @@ var (
 
 	userBorderStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#444"))
-
-	userColWidths = []int{4, 16, 10, 44}
 )
 
 type userFormData struct {
@@ -73,27 +71,25 @@ func (m Model) viewUsersTab() string {
 		})
 	}
 
+	tableWidth := m.termWidth - 6
+	if tableWidth < 40 {
+		tableWidth = 40
+	}
+
 	t := table.New().
 		Border(lipgloss.RoundedBorder()).
 		BorderStyle(userBorderStyle).
+		Width(tableWidth).
 		Headers("ID", "USERNAME", "ROLE", "PUBLIC KEY").
 		Rows(rows...).
 		StyleFunc(func(row, col int) lipgloss.Style {
 			if row == table.HeaderRow {
-				s := userHeaderStyle
-				if col < len(userColWidths) {
-					s = s.Width(userColWidths[col])
-				}
-				return s
+				return userHeaderStyle
 			}
-			s := userCellStyle
 			if row == selectedVisual {
-				s = userSelectedStyle
+				return userSelectedStyle
 			}
-			if col < len(userColWidths) {
-				s = s.Width(userColWidths[col])
-			}
-			return s
+			return userCellStyle
 		})
 
 	return "\n" + t.Render()

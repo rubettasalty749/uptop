@@ -26,8 +26,6 @@ var (
 
 	alertBorderStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#444"))
-
-	alertColWidths = []int{4, 16, 10, 36}
 )
 
 type alertFormData struct {
@@ -120,27 +118,25 @@ func (m Model) viewAlertsTab() string {
 		})
 	}
 
+	tableWidth := m.termWidth - 6
+	if tableWidth < 40 {
+		tableWidth = 40
+	}
+
 	t := table.New().
 		Border(lipgloss.RoundedBorder()).
 		BorderStyle(alertBorderStyle).
+		Width(tableWidth).
 		Headers("ID", "NAME", "TYPE", "CONFIG").
 		Rows(rows...).
 		StyleFunc(func(row, col int) lipgloss.Style {
 			if row == table.HeaderRow {
-				s := alertHeaderStyle
-				if col < len(alertColWidths) {
-					s = s.Width(alertColWidths[col])
-				}
-				return s
+				return alertHeaderStyle
 			}
-			s := alertCellStyle
 			if row == selectedVisual {
-				s = alertSelectedStyle
+				return alertSelectedStyle
 			}
-			if col < len(alertColWidths) {
-				s = s.Width(alertColWidths[col])
-			}
-			return s
+			return alertCellStyle
 		})
 
 	return "\n" + t.Render()

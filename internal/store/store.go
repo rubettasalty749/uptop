@@ -11,6 +11,7 @@ type Store interface {
 	GetSites() []models.Site
 	AddSite(site models.Site)
 	UpdateSite(site models.Site)
+	UpdateSitePaused(id int, paused bool)
 	DeleteSite(id int)
 
 	// Alerts
