@@ -108,7 +108,7 @@ func (m Model) viewAlertsTab() string {
 	for i := m.tableOffset; i < end; i++ {
 		alert := m.alerts[i]
 		rows = append(rows, []string{
-			fmt.Sprintf("%d", alert.ID),
+			fmt.Sprintf("%d", i+1),
 			m.zones.Mark(fmt.Sprintf("alert-%d", i), limitStr(alert.Name, 15)),
 			fmtAlertType(alert.Type),
 			fmtAlertConfig(struct {
@@ -127,7 +127,7 @@ func (m Model) viewAlertsTab() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderStyle(alertBorderStyle).
 		Width(tableWidth).
-		Headers("ID", "NAME", "TYPE", "CONFIG").
+		Headers("#", "NAME", "TYPE", "CONFIG").
 		Rows(rows...).
 		StyleFunc(func(row, col int) lipgloss.Style {
 			if row == table.HeaderRow {

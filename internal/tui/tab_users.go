@@ -64,7 +64,7 @@ func (m Model) viewUsersTab() string {
 	for i := m.tableOffset; i < end; i++ {
 		u := m.users[i]
 		rows = append(rows, []string{
-			fmt.Sprintf("%d", u.ID),
+			fmt.Sprintf("%d", i+1),
 			m.zones.Mark(fmt.Sprintf("user-%d", i), limitStr(u.Username, 15)),
 			fmtRole(u.Role),
 			fmtKey(u.PublicKey),
@@ -80,7 +80,7 @@ func (m Model) viewUsersTab() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderStyle(userBorderStyle).
 		Width(tableWidth).
-		Headers("ID", "USERNAME", "ROLE", "PUBLIC KEY").
+		Headers("#", "USERNAME", "ROLE", "PUBLIC KEY").
 		Rows(rows...).
 		StyleFunc(func(row, col int) lipgloss.Style {
 			if row == table.HeaderRow {

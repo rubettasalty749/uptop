@@ -234,7 +234,7 @@ func (m Model) viewSitesTab() string {
 		}
 
 		rows = append(rows, []string{
-			strconv.Itoa(site.ID),
+			strconv.Itoa(i + 1),
 			m.zones.Mark(fmt.Sprintf("site-%d", i), limitStr(site.Name, 13)),
 			site.Type,
 			fmtStatus(site.Status, site.Paused),
@@ -255,7 +255,7 @@ func (m Model) viewSitesTab() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderStyle(siteBorderStyle).
 		Width(tableWidth).
-		Headers("ID", "NAME", "TYPE", "STATUS", "LATENCY", "UPTIME", "HISTORY", "SSL", "RETRY").
+		Headers("#", "NAME", "TYPE", "STATUS", "LATENCY", "UPTIME", "HISTORY", "SSL", "RETRY").
 		Rows(rows...).
 		StyleFunc(func(row, col int) lipgloss.Style {
 			if row == table.HeaderRow {
