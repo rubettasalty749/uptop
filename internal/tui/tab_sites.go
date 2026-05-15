@@ -298,6 +298,9 @@ func (m Model) viewSitesTab() string {
 		tableWidth = 40
 	}
 
+	// column widths: #=6, name=flex, type=10, status=10, latency=8, uptime=8, history=sparkWidth+4, ssl=7, retry=9
+	colWidths := []int{6, 0, 10, 10, 8, 8, sparkWidth + 4, 7, 9}
+
 	t := table.New().
 		Border(lipgloss.RoundedBorder()).
 		BorderStyle(siteBorderStyle).
@@ -305,16 +308,20 @@ func (m Model) viewSitesTab() string {
 		Headers("#", "NAME", "TYPE", "STATUS", "LATENCY", "UPTIME", "HISTORY", "SSL", "RETRY").
 		Rows(rows...).
 		StyleFunc(func(row, col int) lipgloss.Style {
+			var base lipgloss.Style
 			if row == table.HeaderRow {
-				return siteHeaderStyle
+				base = siteHeaderStyle
+			} else if row == selectedVisual {
+				base = siteSelectedStyle
+			} else if isGroupRow(row) {
+				base = siteGroupStyle
+			} else {
+				base = siteCellStyle
 			}
-			if row == selectedVisual {
-				return siteSelectedStyle
+			if col < len(colWidths) && colWidths[col] > 0 {
+				base = base.Width(colWidths[col])
 			}
-			if isGroupRow(row) {
-				return siteGroupStyle
-			}
-			return siteCellStyle
+			return base
 		})
 
 	return "\n" + t.Render()
