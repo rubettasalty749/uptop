@@ -7,6 +7,7 @@ import (
 	"go-upkeep/internal/models"
 	"net/http"
 	"net/smtp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -17,15 +18,95 @@ type Provider interface {
 	Send(title, message string) error
 }
 
+type PayloadFunc func(title, message string) ([]byte, error)
+
+type HTTPProvider struct {
+	URL     string
+	Payload PayloadFunc
+}
+
+func (h *HTTPProvider) Send(title, message string) error {
+	body, err := h.Payload(title, message)
+	if err != nil {
+		return err
+	}
+	resp, err := alertClient.Post(h.URL, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("alert webhook returned HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func discordPayload(title, message string) ([]byte, error) {
+	return json.Marshal(map[string]string{"content": fmt.Sprintf("**%s**\n%s", title, message)})
+}
+
+func slackPayload(title, message string) ([]byte, error) {
+	return json.Marshal(map[string]string{"text": fmt.Sprintf("*%s*\n%s", title, message)})
+}
+
+func webhookPayload(title, message string) ([]byte, error) {
+	return json.Marshal(map[string]string{"title": title, "message": message, "status": "alert"})
+}
+
+func telegramPayload(chatID string) PayloadFunc {
+	return func(title, message string) ([]byte, error) {
+		return json.Marshal(map[string]string{
+			"chat_id":    chatID,
+			"text":       fmt.Sprintf("*%s*\n%s", title, message),
+			"parse_mode": "Markdown",
+		})
+	}
+}
+
+func pagerdutyPayload(routingKey, severity string) PayloadFunc {
+	return func(title, message string) ([]byte, error) {
+		return json.Marshal(map[string]any{
+			"routing_key":  routingKey,
+			"event_action": "trigger",
+			"payload": map[string]string{
+				"summary":  fmt.Sprintf("%s: %s", title, message),
+				"source":   "go-upkeep",
+				"severity": severity,
+			},
+		})
+	}
+}
+
+func pushoverPayload(token, user string) PayloadFunc {
+	return func(title, message string) ([]byte, error) {
+		return json.Marshal(map[string]string{
+			"token":   token,
+			"user":    user,
+			"title":   title,
+			"message": message,
+		})
+	}
+}
+
+func gotifyPayload(priority string) PayloadFunc {
+	return func(title, message string) ([]byte, error) {
+		pri, _ := strconv.Atoi(priority)
+		return json.Marshal(map[string]any{
+			"title":    title,
+			"message":  message,
+			"priority": pri,
+		})
+	}
+}
+
 func GetProvider(cfg models.AlertConfig) Provider {
 	switch cfg.Type {
 	case "discord":
-		return &DiscordProvider{URL: cfg.Settings["url"]}
+		return &HTTPProvider{URL: cfg.Settings["url"], Payload: discordPayload}
 	case "slack":
-		return &SlackProvider{URL: cfg.Settings["url"]}
+		return &HTTPProvider{URL: cfg.Settings["url"], Payload: slackPayload}
 	case "webhook":
-		// Generic Webhook
-		return &WebhookProvider{URL: cfg.Settings["url"]}
+		return &HTTPProvider{URL: cfg.Settings["url"], Payload: webhookPayload}
 	case "email":
 		port := "25"
 		if p, ok := cfg.Settings["port"]; ok {
@@ -51,58 +132,40 @@ func GetProvider(cfg models.AlertConfig) Provider {
 			Username:  cfg.Settings["username"],
 			Password:  cfg.Settings["password"],
 		}
+	case "telegram":
+		return &HTTPProvider{
+			URL:     fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", cfg.Settings["token"]),
+			Payload: telegramPayload(cfg.Settings["chat_id"]),
+		}
+	case "pagerduty":
+		severity := "critical"
+		if s, ok := cfg.Settings["severity"]; ok && s != "" {
+			severity = s
+		}
+		return &HTTPProvider{
+			URL:     "https://events.pagerduty.com/v2/enqueue",
+			Payload: pagerdutyPayload(cfg.Settings["routing_key"], severity),
+		}
+	case "pushover":
+		return &HTTPProvider{
+			URL:     "https://api.pushover.net/1/messages.json",
+			Payload: pushoverPayload(cfg.Settings["token"], cfg.Settings["user"]),
+		}
+	case "gotify":
+		priority := "5"
+		if p, ok := cfg.Settings["priority"]; ok && p != "" {
+			priority = p
+		}
+		serverURL := strings.TrimRight(cfg.Settings["url"], "/")
+		return &HTTPProvider{
+			URL:     fmt.Sprintf("%s/message?token=%s", serverURL, cfg.Settings["token"]),
+			Payload: gotifyPayload(priority),
+		}
 	default:
 		return nil
 	}
 }
 
-// --- DISCORD ---
-type DiscordProvider struct{ URL string }
-
-func (d *DiscordProvider) Send(title, message string) error {
-	payload := map[string]string{"content": fmt.Sprintf("**%s**\n%s", title, message)}
-	jsonValue, _ := json.Marshal(payload)
-	resp, err := alertClient.Post(d.URL, "application/json", bytes.NewBuffer(jsonValue))
-	if err != nil {
-		return err
-	}
-	resp.Body.Close()
-	return nil
-}
-
-// --- SLACK ---
-type SlackProvider struct{ URL string }
-
-func (s *SlackProvider) Send(title, message string) error {
-	payload := map[string]string{"text": fmt.Sprintf("*%s*\n%s", title, message)}
-	jsonValue, _ := json.Marshal(payload)
-	resp, err := alertClient.Post(s.URL, "application/json", bytes.NewBuffer(jsonValue))
-	if err != nil {
-		return err
-	}
-	resp.Body.Close()
-	return nil
-}
-
-// --- GENERIC WEBHOOK ---
-type WebhookProvider struct{ URL string }
-
-func (w *WebhookProvider) Send(title, message string) error {
-	payload := map[string]string{
-		"title":   title,
-		"message": message,
-		"status":  "alert",
-	}
-	jsonValue, _ := json.Marshal(payload)
-	resp, err := alertClient.Post(w.URL, "application/json", bytes.NewBuffer(jsonValue))
-	if err != nil {
-		return err
-	}
-	resp.Body.Close()
-	return nil
-}
-
-// --- EMAIL ---
 type EmailProvider struct {
 	Host, Port, User, Pass, To, From string
 }
@@ -139,6 +202,9 @@ func (n *NtfyProvider) Send(title, message string) error {
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("ntfy returned HTTP %d", resp.StatusCode)
+	}
 	return nil
 }

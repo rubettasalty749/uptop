@@ -8,40 +8,30 @@ type Store interface {
 	Init() error
 
 	// Sites
-	GetSites() []models.Site
-	AddSite(site models.Site)
-	UpdateSite(site models.Site)
-	UpdateSitePaused(id int, paused bool)
-	DeleteSite(id int)
+	GetSites() ([]models.Site, error)
+	AddSite(site models.Site) error
+	UpdateSite(site models.Site) error
+	UpdateSitePaused(id int, paused bool) error
+	DeleteSite(id int) error
 
 	// Alerts
-	GetAllAlerts() []models.AlertConfig
-	GetAlert(id int) (models.AlertConfig, bool)
-	AddAlert(name, aType string, settings map[string]string)
-	UpdateAlert(id int, name, aType string, settings map[string]string)
-	DeleteAlert(id int)
+	GetAllAlerts() ([]models.AlertConfig, error)
+	GetAlert(id int) (models.AlertConfig, error)
+	AddAlert(name, aType string, settings map[string]string) error
+	UpdateAlert(id int, name, aType string, settings map[string]string) error
+	DeleteAlert(id int) error
 
 	// Users
-	GetAllUsers() []models.User
+	GetAllUsers() ([]models.User, error)
 	AddUser(username, publicKey, role string) error
 	UpdateUser(id int, username, publicKey, role string) error
 	DeleteUser(id int) error
 
 	// History
-	SaveCheck(siteID int, latencyNs int64, isUp bool)
-	LoadAllHistory(limit int) map[int][]models.CheckRecord
+	SaveCheck(siteID int, latencyNs int64, isUp bool) error
+	LoadAllHistory(limit int) (map[int][]models.CheckRecord, error)
 
 	// Backup & Restore
-	ExportData() models.Backup
+	ExportData() (models.Backup, error)
 	ImportData(data models.Backup) error
-}
-
-var Current Store
-
-func SetGlobal(s Store) {
-	Current = s
-}
-
-func Get() Store {
-	return Current
 }

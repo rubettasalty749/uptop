@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"go-upkeep/internal/cluster"
@@ -68,9 +69,6 @@ func main() {
 	if v := os.Getenv("UPKEEP_CLUSTER_SECRET"); v != "" {
 		clusterKey = v
 	}
-	if os.Getenv("UPKEEP_INSECURE_SKIP_VERIFY") == "true" {
-		monitor.SetInsecureSkipVerify(true)
-	}
 
 	port := flag.Int("port", portVal, "SSH Port")
 	flagDBType := flag.String("db-type", dbType, "Database type")
@@ -80,20 +78,23 @@ func main() {
 	flag.Parse()
 
 	var s store.Store
+	var dbErr error
 	if *flagDBType == "postgres" {
-		s = &store.PostgresStore{ConnStr: *flagDSN}
+		s, dbErr = store.NewPostgresStore(*flagDSN)
 		fmt.Printf("Using PostgreSQL: %s\n", *flagDSN)
 	} else {
-		s = &store.SQLiteStore{DBPath: *flagDSN}
+		s, dbErr = store.NewSQLiteStore(*flagDSN)
 		fmt.Printf("Using SQLite: %s\n", *flagDSN)
+	}
+	if dbErr != nil {
+		fmt.Printf("Database connection error: %v\n", dbErr)
+		os.Exit(1)
 	}
 
 	if err := s.Init(); err != nil {
-		fmt.Printf("Database Init Error: %v\n", err)
+		fmt.Printf("Database init error: %v\n", err)
 		os.Exit(1)
 	}
-	store.SetGlobal(s)
-
 	if *demo {
 		seedDemoData(s)
 	}
@@ -112,26 +113,34 @@ func main() {
 		fmt.Printf("Imported %d monitors and %d alerts from Uptime Kuma v%s\n", len(backup.Sites), len(backup.Alerts), kb.Version)
 	}
 
-	monitor.InitHistoryFromStore()
-	monitor.StartEngine()
+	eng := monitor.NewEngine(s)
+	if os.Getenv("UPKEEP_INSECURE_SKIP_VERIFY") == "true" {
+		eng.SetInsecureSkipVerify(true)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	eng.InitHistory()
+	eng.Start(ctx)
 
 	server.Start(server.ServerConfig{
 		Port:         httpPort,
 		EnableStatus: enableStatus,
 		Title:        statusTitle,
 		ClusterKey:   clusterKey,
-	})
+	}, s, eng)
 
-	cluster.Start(cluster.Config{
+	cluster.Start(ctx, cluster.Config{
 		Mode:      clusterMode,
 		PeerURL:   clusterPeer,
 		SharedKey: clusterKey,
-	})
+	}, eng)
 
-	startSSHServer(*port)
+	startSSHServer(*port, s, eng)
 
 	if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
-		p := tea.NewProgram(tui.InitialModel(true), tea.WithAltScreen(), tea.WithMouseCellMotion())
+		p := tea.NewProgram(tui.InitialModel(true, s, eng), tea.WithAltScreen(), tea.WithMouseCellMotion())
 		if _, err := p.Run(); err != nil {
 			fmt.Printf("Error: %v\n", err)
 		}
@@ -142,18 +151,19 @@ func main() {
 		<-done
 		fmt.Println("Shutting down...")
 	}
+	cancel()
 }
 
-func startSSHServer(port int) {
+func startSSHServer(port int, db store.Store, eng *monitor.Engine) {
 	s, err := wish.NewServer(
 		wish.WithAddress(fmt.Sprintf(":%d", port)),
 		wish.WithHostKeyPath(".ssh/id_ed25519"),
 		wish.WithPublicKeyAuth(func(ctx ssh.Context, key ssh.PublicKey) bool {
-			return isKeyAllowed(key)
+			return isKeyAllowed(db, key)
 		}),
 		wish.WithMiddleware(
 			bm.Middleware(func(s ssh.Session) (tea.Model, []tea.ProgramOption) {
-				return tui.InitialModel(false), []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion()}
+				return tui.InitialModel(false, db, eng), []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion()}
 			}),
 		),
 	)
@@ -161,11 +171,16 @@ func startSSHServer(port int) {
 		fmt.Printf("SSH server error: %v\n", err)
 		return
 	}
-	go func() { s.ListenAndServe() }()
+	go func() {
+		if err := s.ListenAndServe(); err != nil {
+			log.Fatalf("SSH server failed: %v", err)
+		}
+	}()
 }
 
 func seedDemoData(s store.Store) {
-	if existing := s.GetSites(); len(existing) > 0 {
+	existing, _ := s.GetSites()
+	if len(existing) > 0 {
 		return
 	}
 	fmt.Println("Seeding demo data...")
@@ -178,7 +193,7 @@ func seedDemoData(s store.Store) {
 		"from": "oncall@example.com", "to": "team@example.com",
 	})
 
-	alerts := s.GetAllAlerts()
+	alerts, _ := s.GetAllAlerts()
 	alertID := 0
 	if len(alerts) > 0 {
 		alertID = alerts[0].ID
@@ -196,8 +211,11 @@ func seedDemoData(s store.Store) {
 	s.AddSite(models.Site{Name: "SSH Server", Type: "port", Interval: 60, AlertID: alertID, Hostname: "10.0.0.1", Port: 22, Timeout: 5, ExpiryThreshold: 7})
 }
 
-func isKeyAllowed(incomingKey ssh.PublicKey) bool {
-	users := store.Get().GetAllUsers()
+func isKeyAllowed(db store.Store, incomingKey ssh.PublicKey) bool {
+	users, err := db.GetAllUsers()
+	if err != nil {
+		return false
+	}
 	for _, u := range users {
 		allowedKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(u.PublicKey))
 		if err != nil {

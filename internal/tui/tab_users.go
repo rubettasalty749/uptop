@@ -2,30 +2,9 @@ package tui
 
 import (
 	"fmt"
-	"go-upkeep/internal/store"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/lipgloss/table"
-)
-
-var (
-	userHeaderStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#7D56F4")).
-			Bold(true).
-			Padding(0, 1)
-
-	userCellStyle = lipgloss.NewStyle().Padding(0, 1)
-
-	userSelectedStyle = lipgloss.NewStyle().
-				Padding(0, 1).
-				Bold(true).
-				Foreground(lipgloss.Color("#ffffff")).
-				Background(lipgloss.Color("#3b3b5c"))
-
-	userBorderStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#444"))
 )
 
 type userFormData struct {
@@ -53,46 +32,24 @@ func (m Model) viewUsersTab() string {
 		return "\n  No users configured. Press [n] to add one."
 	}
 
-	end := m.tableOffset + m.maxTableRows
-	if end > len(m.users) {
-		end = len(m.users)
-	}
-
-	selectedVisual := m.cursor - m.tableOffset
-
-	var rows [][]string
-	for i := m.tableOffset; i < end; i++ {
-		u := m.users[i]
-		rows = append(rows, []string{
-			fmt.Sprintf("%d", i+1),
-			m.zones.Mark(fmt.Sprintf("user-%d", i), limitStr(u.Username, 15)),
-			fmtRole(u.Role),
-			fmtKey(u.PublicKey),
-		})
-	}
-
-	tableWidth := m.termWidth - 6
-	if tableWidth < 40 {
-		tableWidth = 40
-	}
-
-	t := table.New().
-		Border(lipgloss.RoundedBorder()).
-		BorderStyle(userBorderStyle).
-		Width(tableWidth).
-		Headers("#", "USERNAME", "ROLE", "PUBLIC KEY").
-		Rows(rows...).
-		StyleFunc(func(row, col int) lipgloss.Style {
-			if row == table.HeaderRow {
-				return userHeaderStyle
+	return m.renderTable(
+		[]string{"#", "USERNAME", "ROLE", "PUBLIC KEY"},
+		len(m.users),
+		func(start, end int) [][]string {
+			var rows [][]string
+			for i := start; i < end; i++ {
+				u := m.users[i]
+				rows = append(rows, []string{
+					fmt.Sprintf("%d", i+1),
+					m.zones.Mark(fmt.Sprintf("user-%d", i), limitStr(u.Username, 15)),
+					fmtRole(u.Role),
+					fmtKey(u.PublicKey),
+				})
 			}
-			if row == selectedVisual {
-				return userSelectedStyle
-			}
-			return userCellStyle
-		})
-
-	return "\n" + t.Render()
+			return rows
+		},
+		nil, nil,
+	)
 }
 
 func (m *Model) initUserHuhForm() tea.Cmd {
@@ -145,9 +102,13 @@ func (m *Model) initUserHuhForm() tea.Cmd {
 func (m *Model) submitUserForm() {
 	d := m.userFormData
 	if m.editID > 0 {
-		store.Get().UpdateUser(m.editID, d.Username, d.PublicKey, d.Role)
+		if err := m.store.UpdateUser(m.editID, d.Username, d.PublicKey, d.Role); err != nil {
+			m.engine.AddLog("Update user failed: " + err.Error())
+		}
 	} else {
-		store.Get().AddUser(d.Username, d.PublicKey, d.Role)
+		if err := m.store.AddUser(d.Username, d.PublicKey, d.Role); err != nil {
+			m.engine.AddLog("Add user failed: " + err.Error())
+		}
 	}
 	m.state = stateUsers
 }

@@ -1,10 +1,6 @@
 package monitor
 
-import (
-	"go-upkeep/internal/store"
-	"sync"
-	"time"
-)
+import "time"
 
 const maxHistoryLen = 30
 
@@ -15,19 +11,14 @@ type SiteHistory struct {
 	UpChecks    int
 }
 
-var (
-	histories = make(map[int]*SiteHistory)
-	historyMu sync.RWMutex
-)
-
-func InitHistoryFromStore() {
-	s := store.Get()
-	if s == nil {
+func (e *Engine) InitHistory() {
+	all, err := e.db.LoadAllHistory(maxHistoryLen)
+	if err != nil {
+		e.AddLog("Failed to load check history: " + err.Error())
 		return
 	}
-	all := s.LoadAllHistory(maxHistoryLen)
-	historyMu.Lock()
-	defer historyMu.Unlock()
+	e.histMu.Lock()
+	defer e.histMu.Unlock()
 	for siteID, records := range all {
 		h := &SiteHistory{}
 		for _, r := range records {
@@ -38,21 +29,21 @@ func InitHistoryFromStore() {
 			h.Latencies = append(h.Latencies, time.Duration(r.LatencyNs))
 			h.Statuses = append(h.Statuses, r.IsUp)
 		}
-		histories[siteID] = h
+		e.histories[siteID] = h
 	}
 	if len(all) > 0 {
-		AddLog("Loaded check history from database")
+		e.AddLog("Loaded check history from database")
 	}
 }
 
-func RecordCheck(siteID int, latency time.Duration, isUp bool) {
-	historyMu.Lock()
-	defer historyMu.Unlock()
+func (e *Engine) recordCheck(siteID int, latency time.Duration, isUp bool) {
+	e.histMu.Lock()
+	defer e.histMu.Unlock()
 
-	h, ok := histories[siteID]
+	h, ok := e.histories[siteID]
 	if !ok {
 		h = &SiteHistory{}
-		histories[siteID] = h
+		e.histories[siteID] = h
 	}
 
 	h.TotalChecks++
@@ -70,15 +61,13 @@ func RecordCheck(siteID int, latency time.Duration, isUp bool) {
 		h.Statuses = h.Statuses[len(h.Statuses)-maxHistoryLen:]
 	}
 
-	if s := store.Get(); s != nil {
-		go s.SaveCheck(siteID, latency.Nanoseconds(), isUp)
-	}
+	go func() { _ = e.db.SaveCheck(siteID, latency.Nanoseconds(), isUp) }()
 }
 
-func GetHistory(siteID int) (SiteHistory, bool) {
-	historyMu.RLock()
-	defer historyMu.RUnlock()
-	h, ok := histories[siteID]
+func (e *Engine) GetHistory(siteID int) (SiteHistory, bool) {
+	e.histMu.RLock()
+	defer e.histMu.RUnlock()
+	h, ok := e.histories[siteID]
 	if !ok {
 		return SiteHistory{}, false
 	}
@@ -93,8 +82,8 @@ func GetHistory(siteID int) (SiteHistory, bool) {
 	return cp, true
 }
 
-func RemoveHistory(siteID int) {
-	historyMu.Lock()
-	defer historyMu.Unlock()
-	delete(histories, siteID)
+func (e *Engine) removeHistory(siteID int) {
+	e.histMu.Lock()
+	defer e.histMu.Unlock()
+	delete(e.histories, siteID)
 }

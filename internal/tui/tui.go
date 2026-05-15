@@ -68,6 +68,8 @@ type Model struct {
 	deleteTab  int
 
 	collapsed map[int]bool
+	store     store.Store
+	engine    *monitor.Engine
 
 	// harmonica animation state
 	pulseSpring harmonica.Spring
@@ -80,7 +82,7 @@ type Model struct {
 	users  []models.User
 }
 
-func InitialModel(isAdmin bool) Model {
+func InitialModel(isAdmin bool, s store.Store, eng *monitor.Engine) Model {
 	vpLogs := viewport.New(100, 20)
 	vpLogs.SetContent("Waiting for logs...")
 	z := zone.New()
@@ -90,6 +92,8 @@ func InitialModel(isAdmin bool) Model {
 		logViewport:  vpLogs,
 		maxTableRows: 5,
 		isAdmin:      isAdmin,
+		store:        s,
+		engine:       eng,
 		zones:        z,
 		pulseSpring:  spring,
 		collapsed:    make(map[int]bool),
@@ -107,19 +111,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			switch keyMsg.String() {
 			case "y", "Y":
-				if store.Get() != nil {
-					switch m.deleteTab {
-					case 0:
-						store.Get().DeleteSite(m.deleteID)
-						monitor.RemoveSite(m.deleteID)
-						m.adjustCursor(len(m.sites) - 1)
-					case 1:
-						store.Get().DeleteAlert(m.deleteID)
-						m.adjustCursor(len(m.alerts) - 1)
-					case 3:
-						store.Get().DeleteUser(m.deleteID)
-						m.adjustCursor(len(m.users) - 1)
+				switch m.deleteTab {
+				case 0:
+					if err := m.store.DeleteSite(m.deleteID); err != nil {
+						m.engine.AddLog("Delete site failed: " + err.Error())
 					}
+					m.engine.RemoveSite(m.deleteID)
+					m.adjustCursor(len(m.sites) - 1)
+				case 1:
+					if err := m.store.DeleteAlert(m.deleteID); err != nil {
+						m.engine.AddLog("Delete alert failed: " + err.Error())
+					}
+					m.adjustCursor(len(m.alerts) - 1)
+				case 3:
+					if err := m.store.DeleteUser(m.deleteID); err != nil {
+						m.engine.AddLog("Delete user failed: " + err.Error())
+					}
+					m.adjustCursor(len(m.users) - 1)
 				}
 				m.refreshData()
 				m.state = stateDashboard
@@ -311,11 +319,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "p":
 				if m.currentTab == 0 && len(m.sites) > 0 {
 					site := m.sites[m.cursor]
-					monitor.ToggleSitePause(site.ID)
+					m.engine.ToggleSitePause(site.ID)
 					site.Paused = !site.Paused
-					if store.Get() != nil {
-						store.Get().UpdateSitePaused(site.ID, site.Paused)
-					}
+					_ = m.store.UpdateSitePaused(site.ID, site.Paused)
 					m.refreshData()
 				}
 			case "d", "backspace":
@@ -342,11 +348,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	maxTabs := 3
-	if !m.isAdmin {
-		maxTabs = 2
+	tabCount := 3
+	if m.isAdmin {
+		tabCount = 4
 	}
-	for i := 0; i <= maxTabs; i++ {
+	for i := 0; i < tabCount; i++ {
 		if m.zones.Get(fmt.Sprintf("tab-%d", i)).InBounds(msg) {
 			m.switchTab(i)
 			return m, nil
@@ -429,12 +435,7 @@ func (m *Model) adjustCursor(newLen int) {
 }
 
 func (m *Model) refreshData() {
-	monitor.Mutex.RLock()
-	var allSites []models.Site
-	for _, s := range monitor.LiveState {
-		allSites = append(allSites, s)
-	}
-	monitor.Mutex.RUnlock()
+	allSites := m.engine.GetAllSites()
 
 	var groups, ungrouped []models.Site
 	children := make(map[int][]models.Site)
@@ -464,19 +465,31 @@ func (m *Model) refreshData() {
 	}
 	ordered = append(ordered, ungrouped...)
 	m.sites = ordered
-	if store.Get() != nil {
-		m.alerts = store.Get().GetAllAlerts()
-		if m.isAdmin {
-			m.users = store.Get().GetAllUsers()
+	if alerts, err := m.store.GetAllAlerts(); err == nil {
+		m.alerts = alerts
+	}
+	if m.isAdmin {
+		if users, err := m.store.GetAllUsers(); err == nil {
+			m.users = users
 		}
 	}
-	m.logViewport.SetContent(strings.Join(monitor.GetLogs(), "\n"))
+	m.logViewport.SetContent(strings.Join(m.engine.GetLogs(), "\n"))
+
+	listLen := len(m.sites)
+	if m.currentTab == 1 {
+		listLen = len(m.alerts)
+	} else if m.currentTab == 3 {
+		listLen = len(m.users)
+	}
+	if listLen > 0 && m.cursor >= listLen {
+		m.cursor = listLen - 1
+	}
+	if m.cursor < m.tableOffset {
+		m.tableOffset = m.cursor
+	}
 }
 
 func (m *Model) submitForm() {
-	if store.Get() == nil {
-		return
-	}
 	switch m.state {
 	case stateFormSite:
 		if m.siteFormData != nil {

@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"context"
 	"fmt"
 	"go-upkeep/internal/monitor"
 	"net/http"
@@ -14,13 +15,13 @@ type Config struct {
 	SharedKey string // Security Key
 }
 
-func Start(cfg Config) {
+func Start(ctx context.Context, cfg Config, eng *monitor.Engine) {
 	if cfg.Mode == "leader" {
 		fmt.Println("Cluster: Running as LEADER (Active)")
 		if cfg.SharedKey != "" {
 			fmt.Println("WARNING: Cluster mode enabled. Ensure the HTTP server is behind a TLS-terminating proxy.")
 		}
-		monitor.SetEngineActive(true)
+		eng.SetActive(true)
 		return
 	}
 
@@ -29,20 +30,22 @@ func Start(cfg Config) {
 		if cfg.PeerURL != "" && !strings.HasPrefix(cfg.PeerURL, "https://") {
 			fmt.Println("WARNING: Cluster peer URL is not HTTPS. Cluster secret will be sent in cleartext.")
 		}
-		monitor.SetEngineActive(false)
-		go runFollowerLoop(cfg)
+		eng.SetActive(false)
+		go runFollowerLoop(ctx, cfg, eng)
 	}
 }
 
-func runFollowerLoop(cfg Config) {
+func runFollowerLoop(ctx context.Context, cfg Config, eng *monitor.Engine) {
 	client := http.Client{Timeout: 2 * time.Second}
-
-	// Failover Configuration
 	failures := 0
 	threshold := 3
 
 	for {
-		time.Sleep(5 * time.Second)
+		select {
+		case <-time.After(5 * time.Second):
+		case <-ctx.Done():
+			return
+		}
 
 		req, _ := http.NewRequest("GET", cfg.PeerURL+"/api/health", nil)
 		if cfg.SharedKey != "" {
@@ -59,17 +62,15 @@ func runFollowerLoop(cfg Config) {
 
 		if isLeaderHealthy {
 			failures = 0
-			if monitor.IsEngineActive() {
-				// Leader is back, yield
-				monitor.SetEngineActive(false)
-				monitor.AddLog("Cluster: Leader detected. Switching to PASSIVE.")
+			if eng.IsActive() {
+				eng.SetActive(false)
+				eng.AddLog("Cluster: Leader detected. Switching to PASSIVE.")
 			}
 		} else {
 			failures++
-			// If failures exceed threshold, take over
-			if failures >= threshold && !monitor.IsEngineActive() {
-				monitor.SetEngineActive(true)
-				monitor.AddLog("Cluster: Leader Unreachable. Switching to ACTIVE.")
+			if failures >= threshold && !eng.IsActive() {
+				eng.SetActive(true)
+				eng.AddLog("Cluster: Leader Unreachable. Switching to ACTIVE.")
 			}
 		}
 	}
