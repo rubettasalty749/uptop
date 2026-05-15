@@ -61,12 +61,15 @@ type DiscordProvider struct{ URL string }
 
 func (d *DiscordProvider) Send(title, message string) error {
 	payload := map[string]string{"content": fmt.Sprintf("**%s**\n%s", title, message)}
-	jsonValue, _ := json.Marshal(payload)
+	jsonValue, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
 	resp, err := alertClient.Post(d.URL, "application/json", bytes.NewBuffer(jsonValue))
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 	return nil
 }
 
@@ -75,12 +78,15 @@ type SlackProvider struct{ URL string }
 
 func (s *SlackProvider) Send(title, message string) error {
 	payload := map[string]string{"text": fmt.Sprintf("*%s*\n%s", title, message)}
-	jsonValue, _ := json.Marshal(payload)
+	jsonValue, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
 	resp, err := alertClient.Post(s.URL, "application/json", bytes.NewBuffer(jsonValue))
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 	return nil
 }
 
@@ -93,12 +99,15 @@ func (w *WebhookProvider) Send(title, message string) error {
 		"message": message,
 		"status":  "alert",
 	}
-	jsonValue, _ := json.Marshal(payload)
+	jsonValue, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
 	resp, err := alertClient.Post(w.URL, "application/json", bytes.NewBuffer(jsonValue))
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 	return nil
 }
 
@@ -139,6 +148,6 @@ func (n *NtfyProvider) Send(title, message string) error {
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 	return nil
 }

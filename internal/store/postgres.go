@@ -239,6 +239,7 @@ func (p *PostgresStore) ImportData(data models.Backup) error {
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 
 	tx.Exec("TRUNCATE TABLE sites RESTART IDENTITY CASCADE")
 	tx.Exec("TRUNCATE TABLE alerts RESTART IDENTITY CASCADE")

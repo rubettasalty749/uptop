@@ -258,8 +258,8 @@ func (s *SQLiteStore) ImportData(data models.Backup) error {
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 
-	// Wipe Existing
 	tx.Exec("DELETE FROM sites")
 	tx.Exec("DELETE FROM sqlite_sequence WHERE name='sites'")
 	tx.Exec("DELETE FROM alerts")

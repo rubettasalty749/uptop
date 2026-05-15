@@ -161,7 +161,11 @@ func startSSHServer(port int) {
 		fmt.Printf("SSH server error: %v\n", err)
 		return
 	}
-	go func() { s.ListenAndServe() }()
+	go func() {
+		if err := s.ListenAndServe(); err != nil {
+			log.Fatalf("SSH server failed: %v", err)
+		}
+	}()
 }
 
 func seedDemoData(s store.Store) {

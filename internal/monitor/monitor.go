@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"go-upkeep/internal/alert"
@@ -9,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,6 +54,13 @@ var (
 	activeMutex sync.RWMutex
 
 	insecureSkipVerify bool
+
+	strictClient = &http.Client{
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: false}},
+	}
+	insecureClient = &http.Client{
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+	}
 )
 
 func SetInsecureSkipVerify(skip bool) {
@@ -258,15 +267,51 @@ func checkPush(site models.Site) {
 	}
 }
 
-func checkHTTP(site models.Site) {
-	start := time.Now()
-	timeout := time.Duration(site.Timeout) * time.Second
-	if timeout <= 0 {
-		timeout = 5 * time.Second
+func isCodeAccepted(code int, accepted string) bool {
+	if accepted == "" {
+		return code >= 200 && code < 300
 	}
-	skipTLS := insecureSkipVerify || site.IgnoreTLS
-	client := &http.Client{Timeout: timeout, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: skipTLS}}}
-	resp, err := client.Get(site.URL)
+	for _, part := range strings.Split(accepted, ",") {
+		part = strings.TrimSpace(part)
+		if strings.Contains(part, "-") {
+			bounds := strings.SplitN(part, "-", 2)
+			lo, err1 := strconv.Atoi(strings.TrimSpace(bounds[0]))
+			hi, err2 := strconv.Atoi(strings.TrimSpace(bounds[1]))
+			if err1 == nil && err2 == nil && code >= lo && code <= hi {
+				return true
+			}
+		} else {
+			if v, err := strconv.Atoi(part); err == nil && code == v {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func checkHTTP(site models.Site) {
+	method := site.Method
+	if method == "" {
+		method = "GET"
+	}
+
+	timeout := siteTimeout(site)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, method, site.URL, nil)
+	if err != nil {
+		handleStatusChange(site, "DOWN", 0, 0)
+		return
+	}
+
+	client := strictClient
+	if insecureSkipVerify || site.IgnoreTLS {
+		client = insecureClient
+	}
+
+	start := time.Now()
+	resp, err := client.Do(req)
 	latency := time.Since(start)
 
 	rawStatus := "UP"
@@ -279,7 +324,7 @@ func checkHTTP(site models.Site) {
 	} else {
 		defer resp.Body.Close()
 		rawCode = resp.StatusCode
-		if resp.StatusCode >= 400 {
+		if !isCodeAccepted(rawCode, site.AcceptedCodes) {
 			rawStatus = "DOWN"
 		}
 		if site.CheckSSL && resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {

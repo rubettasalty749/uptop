@@ -39,3 +39,4 @@ tmp
 /go-upkeep/
 
 *.local.json
+*.local.md
