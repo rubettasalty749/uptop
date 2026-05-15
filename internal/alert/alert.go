@@ -17,15 +17,49 @@ type Provider interface {
 	Send(title, message string) error
 }
 
+type PayloadFunc func(title, message string) ([]byte, error)
+
+type HTTPProvider struct {
+	URL     string
+	Payload PayloadFunc
+}
+
+func (h *HTTPProvider) Send(title, message string) error {
+	body, err := h.Payload(title, message)
+	if err != nil {
+		return err
+	}
+	resp, err := alertClient.Post(h.URL, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("alert webhook returned HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func discordPayload(title, message string) ([]byte, error) {
+	return json.Marshal(map[string]string{"content": fmt.Sprintf("**%s**\n%s", title, message)})
+}
+
+func slackPayload(title, message string) ([]byte, error) {
+	return json.Marshal(map[string]string{"text": fmt.Sprintf("*%s*\n%s", title, message)})
+}
+
+func webhookPayload(title, message string) ([]byte, error) {
+	return json.Marshal(map[string]string{"title": title, "message": message, "status": "alert"})
+}
+
 func GetProvider(cfg models.AlertConfig) Provider {
 	switch cfg.Type {
 	case "discord":
-		return &DiscordProvider{URL: cfg.Settings["url"]}
+		return &HTTPProvider{URL: cfg.Settings["url"], Payload: discordPayload}
 	case "slack":
-		return &SlackProvider{URL: cfg.Settings["url"]}
+		return &HTTPProvider{URL: cfg.Settings["url"], Payload: slackPayload}
 	case "webhook":
-		// Generic Webhook
-		return &WebhookProvider{URL: cfg.Settings["url"]}
+		return &HTTPProvider{URL: cfg.Settings["url"], Payload: webhookPayload}
 	case "email":
 		port := "25"
 		if p, ok := cfg.Settings["port"]; ok {
@@ -56,62 +90,6 @@ func GetProvider(cfg models.AlertConfig) Provider {
 	}
 }
 
-// --- DISCORD ---
-type DiscordProvider struct{ URL string }
-
-func (d *DiscordProvider) Send(title, message string) error {
-	payload := map[string]string{"content": fmt.Sprintf("**%s**\n%s", title, message)}
-	jsonValue, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	resp, err := alertClient.Post(d.URL, "application/json", bytes.NewBuffer(jsonValue))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	return nil
-}
-
-// --- SLACK ---
-type SlackProvider struct{ URL string }
-
-func (s *SlackProvider) Send(title, message string) error {
-	payload := map[string]string{"text": fmt.Sprintf("*%s*\n%s", title, message)}
-	jsonValue, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	resp, err := alertClient.Post(s.URL, "application/json", bytes.NewBuffer(jsonValue))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	return nil
-}
-
-// --- GENERIC WEBHOOK ---
-type WebhookProvider struct{ URL string }
-
-func (w *WebhookProvider) Send(title, message string) error {
-	payload := map[string]string{
-		"title":   title,
-		"message": message,
-		"status":  "alert",
-	}
-	jsonValue, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	resp, err := alertClient.Post(w.URL, "application/json", bytes.NewBuffer(jsonValue))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	return nil
-}
-
-// --- EMAIL ---
 type EmailProvider struct {
 	Host, Port, User, Pass, To, From string
 }
@@ -149,5 +127,8 @@ func (n *NtfyProvider) Send(title, message string) error {
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("ntfy returned HTTP %d", resp.StatusCode)
+	}
 	return nil
 }
