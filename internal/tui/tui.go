@@ -67,6 +67,8 @@ type Model struct {
 	deleteName string
 	deleteTab  int
 
+	collapsed map[int]bool
+
 	// harmonica animation state
 	pulseSpring harmonica.Spring
 	pulsePos    float64
@@ -90,6 +92,7 @@ func InitialModel(isAdmin bool) Model {
 		isAdmin:      isAdmin,
 		zones:        z,
 		pulseSpring:  spring,
+		collapsed:    make(map[int]bool),
 	}
 }
 
@@ -299,6 +302,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.state = stateFormUser
 					return m, m.initUserHuhForm()
 				}
+			case " ":
+				if m.currentTab == 0 && len(m.sites) > 0 && m.sites[m.cursor].Type == "group" {
+					gid := m.sites[m.cursor].ID
+					m.collapsed[gid] = !m.collapsed[gid]
+					m.refreshData()
+				}
 			case "p":
 				if m.currentTab == 0 && len(m.sites) > 0 {
 					site := m.sites[m.cursor]
@@ -421,13 +430,40 @@ func (m *Model) adjustCursor(newLen int) {
 
 func (m *Model) refreshData() {
 	monitor.Mutex.RLock()
-	var sites []models.Site
+	var allSites []models.Site
 	for _, s := range monitor.LiveState {
-		sites = append(sites, s)
+		allSites = append(allSites, s)
 	}
 	monitor.Mutex.RUnlock()
-	sort.Slice(sites, func(i, j int) bool { return sites[i].ID < sites[j].ID })
-	m.sites = sites
+
+	var groups, ungrouped []models.Site
+	children := make(map[int][]models.Site)
+	for _, s := range allSites {
+		if s.Type == "group" {
+			groups = append(groups, s)
+		} else if s.ParentID > 0 {
+			children[s.ParentID] = append(children[s.ParentID], s)
+		} else {
+			ungrouped = append(ungrouped, s)
+		}
+	}
+	sort.Slice(groups, func(i, j int) bool { return groups[i].ID < groups[j].ID })
+	for pid := range children {
+		c := children[pid]
+		sort.Slice(c, func(i, j int) bool { return c[i].ID < c[j].ID })
+		children[pid] = c
+	}
+	sort.Slice(ungrouped, func(i, j int) bool { return ungrouped[i].ID < ungrouped[j].ID })
+
+	var ordered []models.Site
+	for _, g := range groups {
+		ordered = append(ordered, g)
+		if !m.collapsed[g.ID] {
+			ordered = append(ordered, children[g.ID]...)
+		}
+	}
+	ordered = append(ordered, ungrouped...)
+	m.sites = ordered
 	if store.Get() != nil {
 		m.alerts = store.Get().GetAllAlerts()
 		if m.isAdmin {
@@ -543,7 +579,7 @@ func (m Model) viewDashboard() string {
 		}
 	}
 
-	footer := subtleStyle.Render("\n[n] New  [e/Enter] Edit  [d] Delete  [p] Pause  [Tab/Click] Switch  [Ctrl+L] Clear  [q] Quit")
+	footer := subtleStyle.Render("\n[n] New  [e/Enter] Edit  [d] Delete  [p] Pause  [Space] Collapse  [Tab/Click] Switch  [q] Quit")
 	if m.currentTab == 3 {
 		footer = subtleStyle.Render("\n[n] Add User  [d] Revoke  [Tab/Click] Switch  [Ctrl+L] Clear  [q] Quit")
 	}

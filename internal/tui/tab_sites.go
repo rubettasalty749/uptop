@@ -34,6 +34,11 @@ var (
 
 	siteBorderStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#444"))
+
+	siteGroupStyle = lipgloss.NewStyle().
+			Padding(0, 1).
+			Bold(true).
+			Foreground(lipgloss.Color("#7D56F4"))
 )
 
 type siteFormData struct {
@@ -50,6 +55,7 @@ type siteFormData struct {
 	Timeout     string
 	Description string
 	IgnoreTLS   bool
+	GroupID     string
 }
 
 func latencySparkline(latencies []time.Duration, width int) string {
@@ -222,10 +228,42 @@ func (m Model) viewSitesTab() string {
 	selectedVisual := m.cursor - m.tableOffset
 
 	var rows [][]string
+	var groupRows []int
 	for i := m.tableOffset; i < end; i++ {
 		site := m.sites[i]
-		hist, _ := monitor.GetHistory(site.ID)
 
+		if site.Type == "group" {
+			groupRows = append(groupRows, i-m.tableOffset)
+			arrow := "▾"
+			if m.collapsed[site.ID] {
+				arrow = "▸"
+			}
+			rows = append(rows, []string{
+				strconv.Itoa(i + 1),
+				m.zones.Mark(fmt.Sprintf("site-%d", i), arrow+" "+limitStr(site.Name, 11)),
+				"group",
+				fmtStatus(site.Status, site.Paused),
+				subtleStyle.Render("—"),
+				subtleStyle.Render("—"),
+				subtleStyle.Render(strings.Repeat("·", sparkWidth)),
+				subtleStyle.Render("-"),
+				subtleStyle.Render("—"),
+			})
+			continue
+		}
+
+		name := site.Name
+		if site.ParentID > 0 {
+			prefix := "├"
+			if i+1 >= len(m.sites) || m.sites[i+1].ParentID != site.ParentID {
+				prefix = "└"
+			}
+			name = prefix + " " + limitStr(name, 11)
+		} else {
+			name = limitStr(name, 13)
+		}
+
+		hist, _ := monitor.GetHistory(site.ID)
 		var spark string
 		if site.Type == "push" {
 			spark = heartbeatSparkline(hist.Statuses, sparkWidth)
@@ -235,7 +273,7 @@ func (m Model) viewSitesTab() string {
 
 		rows = append(rows, []string{
 			strconv.Itoa(i + 1),
-			m.zones.Mark(fmt.Sprintf("site-%d", i), limitStr(site.Name, 13)),
+			m.zones.Mark(fmt.Sprintf("site-%d", i), name),
 			site.Type,
 			fmtStatus(site.Status, site.Paused),
 			fmtLatency(site.Latency),
@@ -244,6 +282,15 @@ func (m Model) viewSitesTab() string {
 			fmtSSL(site),
 			fmtRetries(site),
 		})
+	}
+
+	isGroupRow := func(row int) bool {
+		for _, g := range groupRows {
+			if g == row {
+				return true
+			}
+		}
+		return false
 	}
 
 	tableWidth := m.termWidth - 6
@@ -264,6 +311,9 @@ func (m Model) viewSitesTab() string {
 			if row == selectedVisual {
 				return siteSelectedStyle
 			}
+			if isGroupRow(row) {
+				return siteGroupStyle
+			}
 			return siteCellStyle
 		})
 
@@ -278,6 +328,7 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 		Retries:   "0",
 		Timeout:   "5",
 		Port:      "0",
+		GroupID:   "0",
 	}
 
 	if m.editID > 0 {
@@ -296,6 +347,7 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				m.siteFormData.Timeout = strconv.Itoa(site.Timeout)
 				m.siteFormData.Description = site.Description
 				m.siteFormData.IgnoreTLS = site.IgnoreTLS
+				m.siteFormData.GroupID = strconv.Itoa(site.ParentID)
 				break
 			}
 		}
@@ -308,6 +360,13 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				fmt.Sprintf("%s (%s)", a.Name, a.Type),
 				strconv.Itoa(a.ID),
 			))
+		}
+	}
+
+	groupOpts := []huh.Option[string]{huh.NewOption("None", "0")}
+	for _, s := range m.sites {
+		if s.Type == "group" && s.ID != m.editID {
+			groupOpts = append(groupOpts, huh.NewOption(s.Name, strconv.Itoa(s.ID)))
 		}
 	}
 
@@ -331,12 +390,17 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 					huh.NewOption("DNS", "dns"),
 					huh.NewOption("Group", "group"),
 				).Value(&m.siteFormData.SiteType),
+			huh.NewSelect[string]().Title("Alert Channel").
+				Options(alertOpts...).
+				Value(&m.siteFormData.AlertID),
+		).Title("Monitor Settings"),
+		huh.NewGroup(
 			huh.NewInput().Title("URL").
 				Placeholder("https://example.com").
 				Description("Required for HTTP monitors").
 				Value(&m.siteFormData.URL).
 				Validate(func(s string) error {
-					if m.siteFormData.SiteType == "push" {
+					if m.siteFormData.SiteType == "push" || m.siteFormData.SiteType == "group" {
 						return nil
 					}
 					if s == "" {
@@ -358,6 +422,9 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				Placeholder("60").
 				Value(&m.siteFormData.Interval).
 				Validate(func(s string) error {
+					if m.siteFormData.SiteType == "group" {
+						return nil
+					}
 					v, err := strconv.Atoi(s)
 					if err != nil {
 						return fmt.Errorf("must be a number")
@@ -367,11 +434,9 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 					}
 					return nil
 				}),
-			huh.NewSelect[string]().Title("Alert Channel").
-				Options(alertOpts...).
-				Value(&m.siteFormData.AlertID),
-		).Title("Monitor Settings"),
-		huh.NewGroup(
+			huh.NewSelect[string]().Title("Parent Group").
+				Options(groupOpts...).
+				Value(&m.siteFormData.GroupID),
 			huh.NewInput().Title("Hostname / IP").
 				Placeholder("10.0.0.1").
 				Description("Target for ping/port/DNS monitors").
@@ -394,6 +459,9 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				Placeholder("5").
 				Value(&m.siteFormData.Timeout).
 				Validate(func(s string) error {
+					if m.siteFormData.SiteType == "group" {
+						return nil
+					}
 					v, err := strconv.Atoi(s)
 					if err != nil {
 						return fmt.Errorf("must be a number")
@@ -406,7 +474,9 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 			huh.NewInput().Title("Description").
 				Placeholder("Optional description").
 				Value(&m.siteFormData.Description),
-		).Title("Connection"),
+		).Title("Connection").WithHideFunc(func() bool {
+			return m.siteFormData.SiteType == "group"
+		}),
 		huh.NewGroup(
 			huh.NewConfirm().Title("Monitor SSL Certificate?").
 				Value(&m.siteFormData.CheckSSL),
@@ -438,7 +508,9 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				}),
 			huh.NewConfirm().Title("Ignore TLS Errors?").
 				Value(&m.siteFormData.IgnoreTLS),
-		).Title("Advanced"),
+		).Title("Advanced").WithHideFunc(func() bool {
+			return m.siteFormData.SiteType == "group"
+		}),
 	).WithTheme(huh.ThemeDracula())
 
 	return m.huhForm.Init()
@@ -452,6 +524,7 @@ func (m *Model) submitSiteForm() {
 	retries, _ := strconv.Atoi(d.Retries)
 	port, _ := strconv.Atoi(d.Port)
 	timeout, _ := strconv.Atoi(d.Timeout)
+	groupID, _ := strconv.Atoi(d.GroupID)
 	if interval < 1 {
 		interval = 60
 	}
@@ -474,6 +547,7 @@ func (m *Model) submitSiteForm() {
 		Timeout:         timeout,
 		Description:     d.Description,
 		IgnoreTLS:       d.IgnoreTLS,
+		ParentID:        groupID,
 	}
 
 	if m.editID > 0 {

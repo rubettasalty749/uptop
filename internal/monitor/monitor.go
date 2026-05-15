@@ -243,7 +243,7 @@ func checkByID(id int) {
 	case "dns":
 		checkDNS(site)
 	case "group":
-		// groups don't perform checks
+		checkGroup(site)
 	}
 }
 
@@ -435,6 +435,44 @@ func checkPort(site models.Site) {
 	}
 	conn.Close()
 	handleStatusChange(updatedSite, "UP", 0, latency)
+}
+
+func checkGroup(site models.Site) {
+	Mutex.RLock()
+	status := "UP"
+	hasChildren := false
+	allPaused := true
+	for _, child := range LiveState {
+		if child.ParentID != site.ID || child.Type == "group" {
+			continue
+		}
+		hasChildren = true
+		if !child.Paused {
+			allPaused = false
+		}
+		if child.Paused {
+			continue
+		}
+		if child.Status == "DOWN" || child.Status == "SSL EXP" {
+			status = "DOWN"
+		} else if child.Status == "PENDING" && status != "DOWN" {
+			status = "PENDING"
+		}
+	}
+	Mutex.RUnlock()
+
+	if !hasChildren {
+		status = "PENDING"
+	}
+
+	Mutex.Lock()
+	s := LiveState[site.ID]
+	s.Status = status
+	if hasChildren && allPaused {
+		s.Paused = true
+	}
+	LiveState[site.ID] = s
+	Mutex.Unlock()
 }
 
 func checkDNS(site models.Site) {
