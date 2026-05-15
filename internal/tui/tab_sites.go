@@ -356,7 +356,17 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				}),
 			huh.NewInput().Title("Check Interval (seconds)").
 				Placeholder("60").
-				Value(&m.siteFormData.Interval),
+				Value(&m.siteFormData.Interval).
+				Validate(func(s string) error {
+					v, err := strconv.Atoi(s)
+					if err != nil {
+						return fmt.Errorf("must be a number")
+					}
+					if v < 5 {
+						return fmt.Errorf("minimum interval is 5 seconds")
+					}
+					return nil
+				}),
 			huh.NewSelect[string]().Title("Alert Channel").
 				Options(alertOpts...).
 				Value(&m.siteFormData.AlertID),
@@ -369,10 +379,30 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 			huh.NewInput().Title("Port").
 				Placeholder("0").
 				Description("Target port for TCP port monitors").
-				Value(&m.siteFormData.Port),
+				Value(&m.siteFormData.Port).
+				Validate(func(s string) error {
+					v, err := strconv.Atoi(s)
+					if err != nil {
+						return fmt.Errorf("must be a number")
+					}
+					if v < 0 || v > 65535 {
+						return fmt.Errorf("port must be 0-65535")
+					}
+					return nil
+				}),
 			huh.NewInput().Title("Timeout (seconds)").
 				Placeholder("5").
-				Value(&m.siteFormData.Timeout),
+				Value(&m.siteFormData.Timeout).
+				Validate(func(s string) error {
+					v, err := strconv.Atoi(s)
+					if err != nil {
+						return fmt.Errorf("must be a number")
+					}
+					if v < 1 || v > 300 {
+						return fmt.Errorf("timeout must be 1-300 seconds")
+					}
+					return nil
+				}),
 			huh.NewInput().Title("Description").
 				Placeholder("Optional description").
 				Value(&m.siteFormData.Description),
@@ -382,10 +412,30 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				Value(&m.siteFormData.CheckSSL),
 			huh.NewInput().Title("SSL Warning Threshold (days)").
 				Placeholder("7").
-				Value(&m.siteFormData.Threshold),
+				Value(&m.siteFormData.Threshold).
+				Validate(func(s string) error {
+					v, err := strconv.Atoi(s)
+					if err != nil {
+						return fmt.Errorf("must be a number")
+					}
+					if v < 1 {
+						return fmt.Errorf("threshold must be at least 1 day")
+					}
+					return nil
+				}),
 			huh.NewInput().Title("Max Retries Before Alert").
 				Placeholder("0").
-				Value(&m.siteFormData.Retries),
+				Value(&m.siteFormData.Retries).
+				Validate(func(s string) error {
+					v, err := strconv.Atoi(s)
+					if err != nil {
+						return fmt.Errorf("must be a number")
+					}
+					if v < 0 {
+						return fmt.Errorf("retries cannot be negative")
+					}
+					return nil
+				}),
 			huh.NewConfirm().Title("Ignore TLS Errors?").
 				Value(&m.siteFormData.IgnoreTLS),
 		).Title("Advanced"),

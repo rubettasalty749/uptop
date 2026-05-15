@@ -27,7 +27,11 @@ type Store interface {
 	UpdateUser(id int, username, publicKey, role string) error
 	DeleteUser(id int) error
 
-	// Phase 5: Backup & Restore
+	// History
+	SaveCheck(siteID int, latencyNs int64, isUp bool)
+	LoadAllHistory(limit int) map[int][]models.CheckRecord
+
+	// Backup & Restore
 	ExportData() models.Backup
 	ImportData(data models.Backup) error
 }

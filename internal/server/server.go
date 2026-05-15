@@ -185,6 +185,12 @@ func renderStatusPage(w http.ResponseWriter, title string) {
 		<script>
 			var lastUpdate = null;
 
+			function esc(s) {
+				var d = document.createElement('div');
+				d.appendChild(document.createTextNode(s));
+				return d.innerHTML;
+			}
+
 			function cssClass(status) {
 				return status.replace(/\s+/g, '-');
 			}
@@ -234,13 +240,13 @@ func renderStatusPage(w http.ResponseWriter, title string) {
 					var s = sites[i];
 					var st = s.Paused ? 'PAUSED' : s.Status;
 					var cls = cssClass(st);
-					var meta = s.Type + ' | ' + (s.Type === 'http' ? s.URL : 'Heartbeat Monitor');
+					var meta = esc(s.Type) + ' | ' + (s.Type === 'http' ? esc(s.URL) : 'Heartbeat Monitor');
 					var lc = s.LastCheck ? new Date(s.LastCheck).toLocaleTimeString('en-GB', {hour12: false}) : '—';
 					html += '<div class="card"><div class="info">' +
-						'<div class="name">' + s.Name + '</div>' +
+						'<div class="name">' + esc(s.Name) + '</div>' +
 						'<div class="meta">' + meta + '</div>' +
 						'<div class="meta" style="margin-top:4px;">Last Check: ' + lc + '</div>' +
-						'</div><div class="status ' + cls + '">' + st + '</div></div>';
+						'</div><div class="status ' + cls + '">' + esc(st) + '</div></div>';
 				}
 				c.innerHTML = html;
 			}

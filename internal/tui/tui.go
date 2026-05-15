@@ -40,6 +40,7 @@ const (
 	stateFormSite
 	stateFormAlert
 	stateFormUser
+	stateConfirmDelete
 )
 
 type Model struct {
@@ -61,6 +62,10 @@ type Model struct {
 	logViewport viewport.Model
 	isAdmin     bool
 	zones       *zone.Manager
+
+	deleteID   int
+	deleteName string
+	deleteTab  int
 
 	// harmonica animation state
 	pulseSpring harmonica.Spring
@@ -94,6 +99,41 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
+
+	if m.state == stateConfirmDelete {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			switch keyMsg.String() {
+			case "y", "Y":
+				if store.Get() != nil {
+					switch m.deleteTab {
+					case 0:
+						store.Get().DeleteSite(m.deleteID)
+						monitor.RemoveSite(m.deleteID)
+						m.adjustCursor(len(m.sites) - 1)
+					case 1:
+						store.Get().DeleteAlert(m.deleteID)
+						m.adjustCursor(len(m.alerts) - 1)
+					case 3:
+						store.Get().DeleteUser(m.deleteID)
+						m.adjustCursor(len(m.users) - 1)
+					}
+				}
+				m.refreshData()
+				m.state = stateDashboard
+				if m.deleteTab == 3 {
+					m.state = stateUsers
+				}
+			case "n", "N", "esc":
+				m.state = stateDashboard
+				if m.deleteTab == 3 {
+					m.state = stateUsers
+				}
+			case "ctrl+c":
+				return m, tea.Quit
+			}
+		}
+		return m, nil
+	}
 
 	// Form state: forward ALL messages to huh (keys, timers, resize, etc.)
 	if m.state == stateFormSite || m.state == stateFormAlert || m.state == stateFormUser {
@@ -270,19 +310,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.refreshData()
 				}
 			case "d", "backspace":
-				if m.currentTab == 1 && len(m.alerts) > 0 {
-					store.Get().DeleteAlert(m.alerts[m.cursor].ID)
-					m.adjustCursor(len(m.alerts) - 1)
-				} else if m.currentTab == 0 && len(m.sites) > 0 {
-					id := m.sites[m.cursor].ID
-					store.Get().DeleteSite(id)
-					monitor.RemoveSite(id)
-					m.adjustCursor(len(m.sites) - 1)
+				if m.currentTab == 0 && len(m.sites) > 0 {
+					m.deleteID = m.sites[m.cursor].ID
+					m.deleteName = m.sites[m.cursor].Name
+					m.deleteTab = 0
+					m.state = stateConfirmDelete
+				} else if m.currentTab == 1 && len(m.alerts) > 0 {
+					m.deleteID = m.alerts[m.cursor].ID
+					m.deleteName = m.alerts[m.cursor].Name
+					m.deleteTab = 1
+					m.state = stateConfirmDelete
 				} else if m.currentTab == 3 && m.isAdmin && len(m.users) > 0 {
-					store.Get().DeleteUser(m.users[m.cursor].ID)
-					m.adjustCursor(len(m.users) - 1)
+					m.deleteID = m.users[m.cursor].ID
+					m.deleteName = m.users[m.cursor].Username
+					m.deleteTab = 3
+					m.state = stateConfirmDelete
 				}
-				m.refreshData()
 			}
 		}
 	}
@@ -426,6 +469,16 @@ func (m Model) pulseIndicator() string {
 
 func (m Model) View() string {
 	switch m.state {
+	case stateConfirmDelete:
+		kind := "monitor"
+		if m.deleteTab == 1 {
+			kind = "alert"
+		} else if m.deleteTab == 3 {
+			kind = "user"
+		}
+		msg := dangerStyle.Render(fmt.Sprintf("Delete %s \"%s\"?", kind, m.deleteName))
+		hint := subtleStyle.Render("[y] Confirm  [n] Cancel")
+		return lipgloss.NewStyle().Padding(2, 4).Render(msg + "\n\n" + hint)
 	case stateFormSite, stateFormAlert, stateFormUser:
 		if m.huhForm != nil {
 			title := ""
