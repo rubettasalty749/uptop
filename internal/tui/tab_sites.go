@@ -12,33 +12,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/lipgloss/table"
 )
 
 var sparkChars = []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
 
-var (
-	siteHeaderStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#7D56F4")).
-			Bold(true).
-			Padding(0, 1)
-
-	siteCellStyle = lipgloss.NewStyle().Padding(0, 1)
-
-	siteSelectedStyle = lipgloss.NewStyle().
-				Padding(0, 1).
-				Bold(true).
-				Foreground(lipgloss.Color("#ffffff")).
-				Background(lipgloss.Color("#3b3b5c"))
-
-	siteBorderStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#444"))
-
-	siteGroupStyle = lipgloss.NewStyle().
-			Padding(0, 1).
-			Bold(true).
-			Foreground(lipgloss.Color("#7D56F4"))
-)
+var siteGroupStyle = lipgloss.NewStyle().
+	Padding(0, 1).
+	Bold(true).
+	Foreground(lipgloss.Color("#7D56F4"))
 
 type siteFormData struct {
 	Name        string
@@ -219,111 +200,80 @@ func (m Model) viewSitesTab() string {
 		return "\n  No sites configured. Press [n] to add one."
 	}
 
-	end := m.tableOffset + m.maxTableRows
-	if end > len(m.sites) {
-		end = len(m.sites)
-	}
-
-	selectedVisual := m.cursor - m.tableOffset
-
-	var rows [][]string
-	var groupRows []int
-	for i := m.tableOffset; i < end; i++ {
-		site := m.sites[i]
-
-		if site.Type == "group" {
-			groupRows = append(groupRows, i-m.tableOffset)
-			arrow := "▾"
-			if m.collapsed[site.ID] {
-				arrow = "▸"
-			}
-			rows = append(rows, []string{
-				strconv.Itoa(i + 1),
-				m.zones.Mark(fmt.Sprintf("site-%d", i), arrow+" "+limitStr(site.Name, 11)),
-				"group",
-				fmtStatus(site.Status, site.Paused),
-				subtleStyle.Render("—"),
-				subtleStyle.Render("—"),
-				subtleStyle.Render(strings.Repeat("·", sparkWidth)),
-				subtleStyle.Render("-"),
-				subtleStyle.Render("—"),
-			})
-			continue
-		}
-
-		name := site.Name
-		if site.ParentID > 0 {
-			prefix := "├"
-			if i+1 >= len(m.sites) || m.sites[i+1].ParentID != site.ParentID {
-				prefix = "└"
-			}
-			name = prefix + " " + limitStr(name, 11)
-		} else {
-			name = limitStr(name, 13)
-		}
-
-		hist, _ := monitor.GetHistory(site.ID)
-		var spark string
-		if site.Type == "push" {
-			spark = heartbeatSparkline(hist.Statuses, sparkWidth)
-		} else {
-			spark = latencySparkline(hist.Latencies, sparkWidth)
-		}
-
-		rows = append(rows, []string{
-			strconv.Itoa(i + 1),
-			m.zones.Mark(fmt.Sprintf("site-%d", i), name),
-			site.Type,
-			fmtStatus(site.Status, site.Paused),
-			fmtLatency(site.Latency),
-			fmtUptime(hist.TotalChecks, hist.UpChecks),
-			spark,
-			fmtSSL(site),
-			fmtRetries(site),
-		})
-	}
-
-	isGroupRow := func(row int) bool {
-		for _, g := range groupRows {
-			if g == row {
-				return true
-			}
-		}
-		return false
-	}
-
-	tableWidth := m.termWidth - 6
-	if tableWidth < 40 {
-		tableWidth = 40
-	}
-
-	// column widths: #=6, name=flex, type=10, status=10, latency=8, uptime=8, history=sparkWidth+4, ssl=7, retry=9
 	colWidths := []int{6, 0, 10, 10, 8, 8, sparkWidth + 4, 7, 9}
 
-	t := table.New().
-		Border(lipgloss.RoundedBorder()).
-		BorderStyle(siteBorderStyle).
-		Width(tableWidth).
-		Headers("#", "NAME", "TYPE", "STATUS", "LATENCY", "UPTIME", "HISTORY", "SSL", "RETRY").
-		Rows(rows...).
-		StyleFunc(func(row, col int) lipgloss.Style {
-			var base lipgloss.Style
-			if row == table.HeaderRow {
-				base = siteHeaderStyle
-			} else if row == selectedVisual {
-				base = siteSelectedStyle
-			} else if isGroupRow(row) {
-				base = siteGroupStyle
-			} else {
-				base = siteCellStyle
-			}
-			if col < len(colWidths) && colWidths[col] > 0 {
-				base = base.Width(colWidths[col])
-			}
-			return base
-		})
+	var groupRows map[int]bool
+	return m.renderTable(
+		[]string{"#", "NAME", "TYPE", "STATUS", "LATENCY", "UPTIME", "HISTORY", "SSL", "RETRY"},
+		len(m.sites),
+		func(start, end int) [][]string {
+			groupRows = make(map[int]bool)
+			var rows [][]string
+			for i := start; i < end; i++ {
+				site := m.sites[i]
 
-	return "\n" + t.Render()
+				if site.Type == "group" {
+					groupRows[i-start] = true
+					arrow := "▾"
+					if m.collapsed[site.ID] {
+						arrow = "▸"
+					}
+					rows = append(rows, []string{
+						strconv.Itoa(i + 1),
+						m.zones.Mark(fmt.Sprintf("site-%d", i), arrow+" "+limitStr(site.Name, 11)),
+						"group",
+						fmtStatus(site.Status, site.Paused),
+						subtleStyle.Render("—"),
+						subtleStyle.Render("—"),
+						subtleStyle.Render(strings.Repeat("·", sparkWidth)),
+						subtleStyle.Render("-"),
+						subtleStyle.Render("—"),
+					})
+					continue
+				}
+
+				name := site.Name
+				if site.ParentID > 0 {
+					prefix := "├"
+					if i+1 >= len(m.sites) || m.sites[i+1].ParentID != site.ParentID {
+						prefix = "└"
+					}
+					name = prefix + " " + limitStr(name, 11)
+				} else {
+					name = limitStr(name, 13)
+				}
+
+				hist, _ := monitor.GetHistory(site.ID)
+				var spark string
+				if site.Type == "push" {
+					spark = heartbeatSparkline(hist.Statuses, sparkWidth)
+				} else {
+					spark = latencySparkline(hist.Latencies, sparkWidth)
+				}
+
+				rows = append(rows, []string{
+					strconv.Itoa(i + 1),
+					m.zones.Mark(fmt.Sprintf("site-%d", i), name),
+					site.Type,
+					fmtStatus(site.Status, site.Paused),
+					fmtLatency(site.Latency),
+					fmtUptime(hist.TotalChecks, hist.UpChecks),
+					spark,
+					fmtSSL(site),
+					fmtRetries(site),
+				})
+			}
+			return rows
+		},
+		colWidths,
+		func(row, col int) *lipgloss.Style {
+			if groupRows[row] {
+				s := siteGroupStyle
+				return &s
+			}
+			return nil
+		},
+	)
 }
 
 func (m *Model) initSiteHuhForm() tea.Cmd {

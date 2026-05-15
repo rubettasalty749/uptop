@@ -346,11 +346,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	maxTabs := 3
-	if !m.isAdmin {
-		maxTabs = 2
+	tabCount := 3
+	if m.isAdmin {
+		tabCount = 4
 	}
-	for i := 0; i <= maxTabs; i++ {
+	for i := 0; i < tabCount; i++ {
 		if m.zones.Get(fmt.Sprintf("tab-%d", i)).InBounds(msg) {
 			m.switchTab(i)
 			return m, nil
@@ -477,6 +477,19 @@ func (m *Model) refreshData() {
 		}
 	}
 	m.logViewport.SetContent(strings.Join(monitor.GetLogs(), "\n"))
+
+	listLen := len(m.sites)
+	if m.currentTab == 1 {
+		listLen = len(m.alerts)
+	} else if m.currentTab == 3 {
+		listLen = len(m.users)
+	}
+	if listLen > 0 && m.cursor >= listLen {
+		m.cursor = listLen - 1
+	}
+	if m.cursor < m.tableOffset {
+		m.tableOffset = m.cursor
+	}
 }
 
 func (m *Model) submitForm() {

@@ -7,25 +7,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/lipgloss/table"
-)
-
-var (
-	alertHeaderStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#7D56F4")).
-				Bold(true).
-				Padding(0, 1)
-
-	alertCellStyle = lipgloss.NewStyle().Padding(0, 1)
-
-	alertSelectedStyle = lipgloss.NewStyle().
-				Padding(0, 1).
-				Bold(true).
-				Foreground(lipgloss.Color("#ffffff")).
-				Background(lipgloss.Color("#3b3b5c"))
-
-	alertBorderStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#444"))
 )
 
 type alertFormData struct {
@@ -97,49 +78,27 @@ func (m Model) viewAlertsTab() string {
 		return "\n  No alert channels configured. Press [n] to add one."
 	}
 
-	end := m.tableOffset + m.maxTableRows
-	if end > len(m.alerts) {
-		end = len(m.alerts)
-	}
-
-	selectedVisual := m.cursor - m.tableOffset
-
-	var rows [][]string
-	for i := m.tableOffset; i < end; i++ {
-		alert := m.alerts[i]
-		rows = append(rows, []string{
-			fmt.Sprintf("%d", i+1),
-			m.zones.Mark(fmt.Sprintf("alert-%d", i), limitStr(alert.Name, 15)),
-			fmtAlertType(alert.Type),
-			fmtAlertConfig(struct {
-				Type     string
-				Settings map[string]string
-			}{alert.Type, alert.Settings}),
-		})
-	}
-
-	tableWidth := m.termWidth - 6
-	if tableWidth < 40 {
-		tableWidth = 40
-	}
-
-	t := table.New().
-		Border(lipgloss.RoundedBorder()).
-		BorderStyle(alertBorderStyle).
-		Width(tableWidth).
-		Headers("#", "NAME", "TYPE", "CONFIG").
-		Rows(rows...).
-		StyleFunc(func(row, col int) lipgloss.Style {
-			if row == table.HeaderRow {
-				return alertHeaderStyle
+	return m.renderTable(
+		[]string{"#", "NAME", "TYPE", "CONFIG"},
+		len(m.alerts),
+		func(start, end int) [][]string {
+			var rows [][]string
+			for i := start; i < end; i++ {
+				a := m.alerts[i]
+				rows = append(rows, []string{
+					fmt.Sprintf("%d", i+1),
+					m.zones.Mark(fmt.Sprintf("alert-%d", i), limitStr(a.Name, 15)),
+					fmtAlertType(a.Type),
+					fmtAlertConfig(struct {
+						Type     string
+						Settings map[string]string
+					}{a.Type, a.Settings}),
+				})
 			}
-			if row == selectedVisual {
-				return alertSelectedStyle
-			}
-			return alertCellStyle
-		})
-
-	return "\n" + t.Render()
+			return rows
+		},
+		nil, nil,
+	)
 }
 
 func (m *Model) initAlertHuhForm() tea.Cmd {
