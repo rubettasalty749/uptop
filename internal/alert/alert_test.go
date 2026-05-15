@@ -101,6 +101,110 @@ func TestNtfyProvider(t *testing.T) {
 	}
 }
 
+func TestHTTPProviderTelegram(t *testing.T) {
+	var received map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	p := &HTTPProvider{URL: srv.URL, Payload: telegramPayload("12345")}
+	if err := p.Send("Alert", "Down"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if received["chat_id"] != "12345" {
+		t.Errorf("expected chat_id '12345', got '%s'", received["chat_id"])
+	}
+	if received["text"] != "*Alert*\nDown" {
+		t.Errorf("unexpected text: %s", received["text"])
+	}
+	if received["parse_mode"] != "Markdown" {
+		t.Errorf("expected parse_mode 'Markdown', got '%s'", received["parse_mode"])
+	}
+}
+
+func TestHTTPProviderPagerDuty(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	p := &HTTPProvider{URL: srv.URL, Payload: pagerdutyPayload("test-key", "critical")}
+	if err := p.Send("Alert", "Down"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if received["routing_key"] != "test-key" {
+		t.Errorf("expected routing_key 'test-key', got '%v'", received["routing_key"])
+	}
+	if received["event_action"] != "trigger" {
+		t.Errorf("expected event_action 'trigger', got '%v'", received["event_action"])
+	}
+	payload := received["payload"].(map[string]any)
+	if payload["summary"] != "Alert: Down" {
+		t.Errorf("unexpected summary: %v", payload["summary"])
+	}
+	if payload["severity"] != "critical" {
+		t.Errorf("expected severity 'critical', got '%v'", payload["severity"])
+	}
+}
+
+func TestHTTPProviderPushover(t *testing.T) {
+	var received map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	p := &HTTPProvider{URL: srv.URL, Payload: pushoverPayload("app-tok", "user-key")}
+	if err := p.Send("Alert", "Down"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if received["token"] != "app-tok" {
+		t.Errorf("expected token 'app-tok', got '%s'", received["token"])
+	}
+	if received["user"] != "user-key" {
+		t.Errorf("expected user 'user-key', got '%s'", received["user"])
+	}
+	if received["title"] != "Alert" || received["message"] != "Down" {
+		t.Errorf("unexpected payload: %v", received)
+	}
+}
+
+func TestHTTPProviderGotify(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	p := &HTTPProvider{URL: srv.URL, Payload: gotifyPayload("8")}
+	if err := p.Send("Alert", "Down"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if received["title"] != "Alert" || received["message"] != "Down" {
+		t.Errorf("unexpected payload: %v", received)
+	}
+	if pri, ok := received["priority"].(float64); !ok || pri != 8 {
+		t.Errorf("expected priority 8, got %v", received["priority"])
+	}
+}
+
+func TestGetProviderNewTypes(t *testing.T) {
+	for _, typ := range []string{"telegram", "pagerduty", "pushover", "gotify"} {
+		p := GetProvider(models.AlertConfig{Type: typ, Settings: map[string]string{
+			"token": "x", "chat_id": "1", "routing_key": "k", "user": "u", "url": "http://localhost",
+		}})
+		if p == nil {
+			t.Errorf("GetProvider(%q) returned nil", typ)
+		}
+	}
+}
+
 func TestGetProviderUnknown(t *testing.T) {
 	p := GetProvider(models.AlertConfig{Type: "unknown"})
 	if p != nil {
