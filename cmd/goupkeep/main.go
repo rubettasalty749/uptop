@@ -80,16 +80,21 @@ func main() {
 	flag.Parse()
 
 	var s store.Store
+	var dbErr error
 	if *flagDBType == "postgres" {
-		s = &store.PostgresStore{ConnStr: *flagDSN}
+		s, dbErr = store.NewPostgresStore(*flagDSN)
 		fmt.Printf("Using PostgreSQL: %s\n", *flagDSN)
 	} else {
-		s = &store.SQLiteStore{DBPath: *flagDSN}
+		s, dbErr = store.NewSQLiteStore(*flagDSN)
 		fmt.Printf("Using SQLite: %s\n", *flagDSN)
+	}
+	if dbErr != nil {
+		fmt.Printf("Database connection error: %v\n", dbErr)
+		os.Exit(1)
 	}
 
 	if err := s.Init(); err != nil {
-		fmt.Printf("Database Init Error: %v\n", err)
+		fmt.Printf("Database init error: %v\n", err)
 		os.Exit(1)
 	}
 	store.SetGlobal(s)
