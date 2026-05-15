@@ -112,6 +112,7 @@ func main() {
 		fmt.Printf("Imported %d monitors and %d alerts from Uptime Kuma v%s\n", len(backup.Sites), len(backup.Alerts), kb.Version)
 	}
 
+	monitor.InitHistoryFromStore()
 	monitor.StartEngine()
 
 	server.Start(server.ServerConfig{

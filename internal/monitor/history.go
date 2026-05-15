@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"go-upkeep/internal/store"
 	"sync"
 	"time"
 )
@@ -18,6 +19,31 @@ var (
 	histories = make(map[int]*SiteHistory)
 	historyMu sync.RWMutex
 )
+
+func InitHistoryFromStore() {
+	s := store.Get()
+	if s == nil {
+		return
+	}
+	all := s.LoadAllHistory(maxHistoryLen)
+	historyMu.Lock()
+	defer historyMu.Unlock()
+	for siteID, records := range all {
+		h := &SiteHistory{}
+		for _, r := range records {
+			h.TotalChecks++
+			if r.IsUp {
+				h.UpChecks++
+			}
+			h.Latencies = append(h.Latencies, time.Duration(r.LatencyNs))
+			h.Statuses = append(h.Statuses, r.IsUp)
+		}
+		histories[siteID] = h
+	}
+	if len(all) > 0 {
+		AddLog("Loaded check history from database")
+	}
+}
 
 func RecordCheck(siteID int, latency time.Duration, isUp bool) {
 	historyMu.Lock()
@@ -42,6 +68,10 @@ func RecordCheck(siteID int, latency time.Duration, isUp bool) {
 	h.Statuses = append(h.Statuses, isUp)
 	if len(h.Statuses) > maxHistoryLen {
 		h.Statuses = h.Statuses[len(h.Statuses)-maxHistoryLen:]
+	}
+
+	if s := store.Get(); s != nil {
+		go s.SaveCheck(siteID, latency.Nanoseconds(), isUp)
 	}
 }
 

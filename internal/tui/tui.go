@@ -40,6 +40,7 @@ const (
 	stateFormSite
 	stateFormAlert
 	stateFormUser
+	stateConfirmDelete
 )
 
 type Model struct {
@@ -61,6 +62,12 @@ type Model struct {
 	logViewport viewport.Model
 	isAdmin     bool
 	zones       *zone.Manager
+
+	deleteID   int
+	deleteName string
+	deleteTab  int
+
+	collapsed map[int]bool
 
 	// harmonica animation state
 	pulseSpring harmonica.Spring
@@ -85,6 +92,7 @@ func InitialModel(isAdmin bool) Model {
 		isAdmin:      isAdmin,
 		zones:        z,
 		pulseSpring:  spring,
+		collapsed:    make(map[int]bool),
 	}
 }
 
@@ -94,6 +102,41 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
+
+	if m.state == stateConfirmDelete {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			switch keyMsg.String() {
+			case "y", "Y":
+				if store.Get() != nil {
+					switch m.deleteTab {
+					case 0:
+						store.Get().DeleteSite(m.deleteID)
+						monitor.RemoveSite(m.deleteID)
+						m.adjustCursor(len(m.sites) - 1)
+					case 1:
+						store.Get().DeleteAlert(m.deleteID)
+						m.adjustCursor(len(m.alerts) - 1)
+					case 3:
+						store.Get().DeleteUser(m.deleteID)
+						m.adjustCursor(len(m.users) - 1)
+					}
+				}
+				m.refreshData()
+				m.state = stateDashboard
+				if m.deleteTab == 3 {
+					m.state = stateUsers
+				}
+			case "n", "N", "esc":
+				m.state = stateDashboard
+				if m.deleteTab == 3 {
+					m.state = stateUsers
+				}
+			case "ctrl+c":
+				return m, tea.Quit
+			}
+		}
+		return m, nil
+	}
 
 	// Form state: forward ALL messages to huh (keys, timers, resize, etc.)
 	if m.state == stateFormSite || m.state == stateFormAlert || m.state == stateFormUser {
@@ -259,6 +302,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.state = stateFormUser
 					return m, m.initUserHuhForm()
 				}
+			case " ":
+				if m.currentTab == 0 && len(m.sites) > 0 && m.sites[m.cursor].Type == "group" {
+					gid := m.sites[m.cursor].ID
+					m.collapsed[gid] = !m.collapsed[gid]
+					m.refreshData()
+				}
 			case "p":
 				if m.currentTab == 0 && len(m.sites) > 0 {
 					site := m.sites[m.cursor]
@@ -270,19 +319,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.refreshData()
 				}
 			case "d", "backspace":
-				if m.currentTab == 1 && len(m.alerts) > 0 {
-					store.Get().DeleteAlert(m.alerts[m.cursor].ID)
-					m.adjustCursor(len(m.alerts) - 1)
-				} else if m.currentTab == 0 && len(m.sites) > 0 {
-					id := m.sites[m.cursor].ID
-					store.Get().DeleteSite(id)
-					monitor.RemoveSite(id)
-					m.adjustCursor(len(m.sites) - 1)
+				if m.currentTab == 0 && len(m.sites) > 0 {
+					m.deleteID = m.sites[m.cursor].ID
+					m.deleteName = m.sites[m.cursor].Name
+					m.deleteTab = 0
+					m.state = stateConfirmDelete
+				} else if m.currentTab == 1 && len(m.alerts) > 0 {
+					m.deleteID = m.alerts[m.cursor].ID
+					m.deleteName = m.alerts[m.cursor].Name
+					m.deleteTab = 1
+					m.state = stateConfirmDelete
 				} else if m.currentTab == 3 && m.isAdmin && len(m.users) > 0 {
-					store.Get().DeleteUser(m.users[m.cursor].ID)
-					m.adjustCursor(len(m.users) - 1)
+					m.deleteID = m.users[m.cursor].ID
+					m.deleteName = m.users[m.cursor].Username
+					m.deleteTab = 3
+					m.state = stateConfirmDelete
 				}
-				m.refreshData()
 			}
 		}
 	}
@@ -378,13 +430,40 @@ func (m *Model) adjustCursor(newLen int) {
 
 func (m *Model) refreshData() {
 	monitor.Mutex.RLock()
-	var sites []models.Site
+	var allSites []models.Site
 	for _, s := range monitor.LiveState {
-		sites = append(sites, s)
+		allSites = append(allSites, s)
 	}
 	monitor.Mutex.RUnlock()
-	sort.Slice(sites, func(i, j int) bool { return sites[i].ID < sites[j].ID })
-	m.sites = sites
+
+	var groups, ungrouped []models.Site
+	children := make(map[int][]models.Site)
+	for _, s := range allSites {
+		if s.Type == "group" {
+			groups = append(groups, s)
+		} else if s.ParentID > 0 {
+			children[s.ParentID] = append(children[s.ParentID], s)
+		} else {
+			ungrouped = append(ungrouped, s)
+		}
+	}
+	sort.Slice(groups, func(i, j int) bool { return groups[i].ID < groups[j].ID })
+	for pid := range children {
+		c := children[pid]
+		sort.Slice(c, func(i, j int) bool { return c[i].ID < c[j].ID })
+		children[pid] = c
+	}
+	sort.Slice(ungrouped, func(i, j int) bool { return ungrouped[i].ID < ungrouped[j].ID })
+
+	var ordered []models.Site
+	for _, g := range groups {
+		ordered = append(ordered, g)
+		if !m.collapsed[g.ID] {
+			ordered = append(ordered, children[g.ID]...)
+		}
+	}
+	ordered = append(ordered, ungrouped...)
+	m.sites = ordered
 	if store.Get() != nil {
 		m.alerts = store.Get().GetAllAlerts()
 		if m.isAdmin {
@@ -426,6 +505,16 @@ func (m Model) pulseIndicator() string {
 
 func (m Model) View() string {
 	switch m.state {
+	case stateConfirmDelete:
+		kind := "monitor"
+		if m.deleteTab == 1 {
+			kind = "alert"
+		} else if m.deleteTab == 3 {
+			kind = "user"
+		}
+		msg := dangerStyle.Render(fmt.Sprintf("Delete %s \"%s\"?", kind, m.deleteName))
+		hint := subtleStyle.Render("[y] Confirm  [n] Cancel")
+		return lipgloss.NewStyle().Padding(2, 4).Render(msg + "\n\n" + hint)
 	case stateFormSite, stateFormAlert, stateFormUser:
 		if m.huhForm != nil {
 			title := ""
@@ -490,7 +579,7 @@ func (m Model) viewDashboard() string {
 		}
 	}
 
-	footer := subtleStyle.Render("\n[n] New  [e/Enter] Edit  [d] Delete  [p] Pause  [Tab/Click] Switch  [Ctrl+L] Clear  [q] Quit")
+	footer := subtleStyle.Render("\n[n] New  [e/Enter] Edit  [d] Delete  [p] Pause  [Space] Collapse  [Tab/Click] Switch  [q] Quit")
 	if m.currentTab == 3 {
 		footer = subtleStyle.Render("\n[n] Add User  [d] Revoke  [Tab/Click] Switch  [Ctrl+L] Clear  [q] Quit")
 	}

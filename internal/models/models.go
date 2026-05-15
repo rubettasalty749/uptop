@@ -50,7 +50,13 @@ type User struct {
 	Role      string
 }
 
-// Phase 5: Backup Structure
+type CheckRecord struct {
+	SiteID    int
+	LatencyNs int64
+	IsUp      bool
+	CheckedAt time.Time
+}
+
 type Backup struct {
 	Sites  []Site        `json:"sites"`
 	Alerts []AlertConfig `json:"alerts"`
