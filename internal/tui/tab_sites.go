@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"go-upkeep/internal/models"
-	"go-upkeep/internal/monitor"
 	"net/url"
 	"strconv"
 	"strings"
@@ -243,7 +242,7 @@ func (m Model) viewSitesTab() string {
 					name = limitStr(name, 13)
 				}
 
-				hist, _ := monitor.GetHistory(site.ID)
+				hist, _ := m.engine.GetHistory(site.ID)
 				var spark string
 				if site.Type == "push" {
 					spark = heartbeatSparkline(hist.Statuses, sparkWidth)
@@ -508,12 +507,12 @@ func (m *Model) submitSiteForm() {
 
 	if m.editID > 0 {
 		if err := m.store.UpdateSite(site); err != nil {
-			monitor.AddLog("Update site failed: " + err.Error())
+			m.engine.AddLog("Update site failed: " + err.Error())
 		}
-		monitor.UpdateSiteConfig(site)
+		m.engine.UpdateSiteConfig(site)
 	} else {
 		if err := m.store.AddSite(site); err != nil {
-			monitor.AddLog("Add site failed: " + err.Error())
+			m.engine.AddLog("Add site failed: " + err.Error())
 		}
 	}
 	m.state = stateDashboard

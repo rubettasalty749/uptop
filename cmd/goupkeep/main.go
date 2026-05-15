@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"go-upkeep/internal/cluster"
@@ -68,9 +69,6 @@ func main() {
 	if v := os.Getenv("UPKEEP_CLUSTER_SECRET"); v != "" {
 		clusterKey = v
 	}
-	if os.Getenv("UPKEEP_INSECURE_SKIP_VERIFY") == "true" {
-		monitor.SetInsecureSkipVerify(true)
-	}
 
 	port := flag.Int("port", portVal, "SSH Port")
 	flagDBType := flag.String("db-type", dbType, "Database type")
@@ -115,26 +113,34 @@ func main() {
 		fmt.Printf("Imported %d monitors and %d alerts from Uptime Kuma v%s\n", len(backup.Sites), len(backup.Alerts), kb.Version)
 	}
 
-	monitor.InitHistoryFromStore(s)
-	monitor.StartEngine(s)
+	eng := monitor.NewEngine(s)
+	if os.Getenv("UPKEEP_INSECURE_SKIP_VERIFY") == "true" {
+		eng.SetInsecureSkipVerify(true)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	eng.InitHistory()
+	eng.Start(ctx)
 
 	server.Start(server.ServerConfig{
 		Port:         httpPort,
 		EnableStatus: enableStatus,
 		Title:        statusTitle,
 		ClusterKey:   clusterKey,
-	}, s)
+	}, s, eng)
 
-	cluster.Start(cluster.Config{
+	cluster.Start(ctx, cluster.Config{
 		Mode:      clusterMode,
 		PeerURL:   clusterPeer,
 		SharedKey: clusterKey,
-	})
+	}, eng)
 
-	startSSHServer(*port, s)
+	startSSHServer(*port, s, eng)
 
 	if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
-		p := tea.NewProgram(tui.InitialModel(true, s), tea.WithAltScreen(), tea.WithMouseCellMotion())
+		p := tea.NewProgram(tui.InitialModel(true, s, eng), tea.WithAltScreen(), tea.WithMouseCellMotion())
 		if _, err := p.Run(); err != nil {
 			fmt.Printf("Error: %v\n", err)
 		}
@@ -145,9 +151,10 @@ func main() {
 		<-done
 		fmt.Println("Shutting down...")
 	}
+	cancel()
 }
 
-func startSSHServer(port int, db store.Store) {
+func startSSHServer(port int, db store.Store, eng *monitor.Engine) {
 	s, err := wish.NewServer(
 		wish.WithAddress(fmt.Sprintf(":%d", port)),
 		wish.WithHostKeyPath(".ssh/id_ed25519"),
@@ -156,7 +163,7 @@ func startSSHServer(port int, db store.Store) {
 		}),
 		wish.WithMiddleware(
 			bm.Middleware(func(s ssh.Session) (tea.Model, []tea.ProgramOption) {
-				return tui.InitialModel(false, db), []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion()}
+				return tui.InitialModel(false, db, eng), []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion()}
 			}),
 		),
 	)

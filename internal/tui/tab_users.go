@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"go-upkeep/internal/monitor"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
@@ -104,11 +103,11 @@ func (m *Model) submitUserForm() {
 	d := m.userFormData
 	if m.editID > 0 {
 		if err := m.store.UpdateUser(m.editID, d.Username, d.PublicKey, d.Role); err != nil {
-			monitor.AddLog("Update user failed: " + err.Error())
+			m.engine.AddLog("Update user failed: " + err.Error())
 		}
 	} else {
 		if err := m.store.AddUser(d.Username, d.PublicKey, d.Role); err != nil {
-			monitor.AddLog("Add user failed: " + err.Error())
+			m.engine.AddLog("Add user failed: " + err.Error())
 		}
 	}
 	m.state = stateUsers

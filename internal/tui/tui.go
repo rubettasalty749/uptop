@@ -69,6 +69,7 @@ type Model struct {
 
 	collapsed map[int]bool
 	store     store.Store
+	engine    *monitor.Engine
 
 	// harmonica animation state
 	pulseSpring harmonica.Spring
@@ -81,7 +82,7 @@ type Model struct {
 	users  []models.User
 }
 
-func InitialModel(isAdmin bool, s store.Store) Model {
+func InitialModel(isAdmin bool, s store.Store, eng *monitor.Engine) Model {
 	vpLogs := viewport.New(100, 20)
 	vpLogs.SetContent("Waiting for logs...")
 	z := zone.New()
@@ -92,6 +93,7 @@ func InitialModel(isAdmin bool, s store.Store) Model {
 		maxTableRows: 5,
 		isAdmin:      isAdmin,
 		store:        s,
+		engine:       eng,
 		zones:        z,
 		pulseSpring:  spring,
 		collapsed:    make(map[int]bool),
@@ -112,18 +114,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch m.deleteTab {
 				case 0:
 					if err := m.store.DeleteSite(m.deleteID); err != nil {
-						monitor.AddLog("Delete site failed: " + err.Error())
+						m.engine.AddLog("Delete site failed: " + err.Error())
 					}
-					monitor.RemoveSite(m.deleteID)
+					m.engine.RemoveSite(m.deleteID)
 					m.adjustCursor(len(m.sites) - 1)
 				case 1:
 					if err := m.store.DeleteAlert(m.deleteID); err != nil {
-						monitor.AddLog("Delete alert failed: " + err.Error())
+						m.engine.AddLog("Delete alert failed: " + err.Error())
 					}
 					m.adjustCursor(len(m.alerts) - 1)
 				case 3:
 					if err := m.store.DeleteUser(m.deleteID); err != nil {
-						monitor.AddLog("Delete user failed: " + err.Error())
+						m.engine.AddLog("Delete user failed: " + err.Error())
 					}
 					m.adjustCursor(len(m.users) - 1)
 				}
@@ -317,7 +319,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "p":
 				if m.currentTab == 0 && len(m.sites) > 0 {
 					site := m.sites[m.cursor]
-					monitor.ToggleSitePause(site.ID)
+					m.engine.ToggleSitePause(site.ID)
 					site.Paused = !site.Paused
 					_ = m.store.UpdateSitePaused(site.ID, site.Paused)
 					m.refreshData()
@@ -433,12 +435,7 @@ func (m *Model) adjustCursor(newLen int) {
 }
 
 func (m *Model) refreshData() {
-	monitor.Mutex.RLock()
-	var allSites []models.Site
-	for _, s := range monitor.LiveState {
-		allSites = append(allSites, s)
-	}
-	monitor.Mutex.RUnlock()
+	allSites := m.engine.GetAllSites()
 
 	var groups, ungrouped []models.Site
 	children := make(map[int][]models.Site)
@@ -476,7 +473,7 @@ func (m *Model) refreshData() {
 			m.users = users
 		}
 	}
-	m.logViewport.SetContent(strings.Join(monitor.GetLogs(), "\n"))
+	m.logViewport.SetContent(strings.Join(m.engine.GetLogs(), "\n"))
 
 	listLen := len(m.sites)
 	if m.currentTab == 1 {

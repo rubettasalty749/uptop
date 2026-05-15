@@ -148,7 +148,7 @@ type ServerConfig struct {
 	ClusterKey   string // Shared Secret for Security
 }
 
-func Start(cfg ServerConfig, s store.Store) {
+func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) {
 	if cfg.ClusterKey == "" {
 		fmt.Println("WARNING: No UPKEEP_CLUSTER_SECRET set. Cluster API endpoints are unauthenticated.")
 	}
@@ -161,7 +161,7 @@ func Start(cfg ServerConfig, s store.Store) {
 			http.Error(w, "Missing token", 400)
 			return
 		}
-		if monitor.RecordHeartbeat(token) {
+		if eng.RecordHeartbeat(token) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("OK"))
 		} else {
@@ -244,12 +244,10 @@ func Start(cfg ServerConfig, s store.Store) {
 
 	// 6. Status Page
 	if cfg.EnableStatus {
-		mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) { renderStatusPage(w, cfg.Title) })
+		mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) { renderStatusPage(w, cfg.Title, eng) })
 		mux.HandleFunc("/status/json", func(w http.ResponseWriter, r *http.Request) {
-			monitor.Mutex.RLock()
-			defer monitor.Mutex.RUnlock()
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(monitor.LiveState)
+			json.NewEncoder(w).Encode(eng.GetLiveState())
 		})
 	}
 
@@ -262,13 +260,8 @@ func Start(cfg ServerConfig, s store.Store) {
 	}()
 }
 
-func renderStatusPage(w http.ResponseWriter, title string) {
-	monitor.Mutex.RLock()
-	var sites []models.Site
-	for _, s := range monitor.LiveState {
-		sites = append(sites, s)
-	}
-	monitor.Mutex.RUnlock()
+func renderStatusPage(w http.ResponseWriter, title string, eng *monitor.Engine) {
+	sites := eng.GetAllSites()
 
 	sort.Slice(sites, func(i, j int) bool {
 		if sites[i].Status != sites[j].Status {
