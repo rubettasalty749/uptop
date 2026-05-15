@@ -7,6 +7,7 @@ import (
 	"go-upkeep/internal/models"
 	"net/http"
 	"net/smtp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -52,6 +53,52 @@ func webhookPayload(title, message string) ([]byte, error) {
 	return json.Marshal(map[string]string{"title": title, "message": message, "status": "alert"})
 }
 
+func telegramPayload(chatID string) PayloadFunc {
+	return func(title, message string) ([]byte, error) {
+		return json.Marshal(map[string]string{
+			"chat_id":    chatID,
+			"text":       fmt.Sprintf("*%s*\n%s", title, message),
+			"parse_mode": "Markdown",
+		})
+	}
+}
+
+func pagerdutyPayload(routingKey, severity string) PayloadFunc {
+	return func(title, message string) ([]byte, error) {
+		return json.Marshal(map[string]any{
+			"routing_key":  routingKey,
+			"event_action": "trigger",
+			"payload": map[string]string{
+				"summary":  fmt.Sprintf("%s: %s", title, message),
+				"source":   "go-upkeep",
+				"severity": severity,
+			},
+		})
+	}
+}
+
+func pushoverPayload(token, user string) PayloadFunc {
+	return func(title, message string) ([]byte, error) {
+		return json.Marshal(map[string]string{
+			"token":   token,
+			"user":    user,
+			"title":   title,
+			"message": message,
+		})
+	}
+}
+
+func gotifyPayload(priority string) PayloadFunc {
+	return func(title, message string) ([]byte, error) {
+		pri, _ := strconv.Atoi(priority)
+		return json.Marshal(map[string]any{
+			"title":    title,
+			"message":  message,
+			"priority": pri,
+		})
+	}
+}
+
 func GetProvider(cfg models.AlertConfig) Provider {
 	switch cfg.Type {
 	case "discord":
@@ -84,6 +131,35 @@ func GetProvider(cfg models.AlertConfig) Provider {
 			Priority:  priority,
 			Username:  cfg.Settings["username"],
 			Password:  cfg.Settings["password"],
+		}
+	case "telegram":
+		return &HTTPProvider{
+			URL:     fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", cfg.Settings["token"]),
+			Payload: telegramPayload(cfg.Settings["chat_id"]),
+		}
+	case "pagerduty":
+		severity := "critical"
+		if s, ok := cfg.Settings["severity"]; ok && s != "" {
+			severity = s
+		}
+		return &HTTPProvider{
+			URL:     "https://events.pagerduty.com/v2/enqueue",
+			Payload: pagerdutyPayload(cfg.Settings["routing_key"], severity),
+		}
+	case "pushover":
+		return &HTTPProvider{
+			URL:     "https://api.pushover.net/1/messages.json",
+			Payload: pushoverPayload(cfg.Settings["token"], cfg.Settings["user"]),
+		}
+	case "gotify":
+		priority := "5"
+		if p, ok := cfg.Settings["priority"]; ok && p != "" {
+			priority = p
+		}
+		serverURL := strings.TrimRight(cfg.Settings["url"], "/")
+		return &HTTPProvider{
+			URL:     fmt.Sprintf("%s/message?token=%s", serverURL, cfg.Settings["token"]),
+			Payload: gotifyPayload(priority),
 		}
 	default:
 		return nil
