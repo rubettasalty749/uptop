@@ -128,7 +128,12 @@ func StartEngine() {
 				continue
 			}
 
-			sites := s_instance.GetSites()
+			sites, err := s_instance.GetSites()
+			if err != nil {
+				AddLog(fmt.Sprintf("Failed to load sites: %v", err))
+				time.Sleep(5 * time.Second)
+				continue
+			}
 			for _, s := range sites {
 				Mutex.RLock()
 				_, exists := LiveState[s.ID]
@@ -406,8 +411,8 @@ func triggerAlert(alertID int, title, message string) {
 	if s_instance == nil {
 		return
 	}
-	cfg, ok := s_instance.GetAlert(alertID)
-	if !ok {
+	cfg, err := s_instance.GetAlert(alertID)
+	if err != nil {
 		return
 	}
 	provider := alert.GetProvider(cfg)

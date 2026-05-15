@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"go-upkeep/internal/monitor"
 	"go-upkeep/internal/store"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -277,9 +278,13 @@ func (m *Model) submitAlertForm() {
 	}
 
 	if m.editID > 0 {
-		store.Get().UpdateAlert(m.editID, d.Name, d.AlertType, settings)
+		if err := store.Get().UpdateAlert(m.editID, d.Name, d.AlertType, settings); err != nil {
+			monitor.AddLog("Update alert failed: " + err.Error())
+		}
 	} else {
-		store.Get().AddAlert(d.Name, d.AlertType, settings)
+		if err := store.Get().AddAlert(d.Name, d.AlertType, settings); err != nil {
+			monitor.AddLog("Add alert failed: " + err.Error())
+		}
 	}
 	m.state = stateDashboard
 }

@@ -185,7 +185,12 @@ func Start(cfg ServerConfig) {
 			http.Error(w, "Unauthorized: UPKEEP_CLUSTER_SECRET required", 401)
 			return
 		}
-		data := store.Get().ExportData()
+		data, err := store.Get().ExportData()
+		if err != nil {
+			log.Printf("Export failed: %v", err)
+			http.Error(w, "Export failed", 500)
+			return
+		}
 		json.NewEncoder(w).Encode(data)
 	})
 

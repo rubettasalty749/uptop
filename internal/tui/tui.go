@@ -107,17 +107,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			switch keyMsg.String() {
 			case "y", "Y":
-				if store.Get() != nil {
+				if s := store.Get(); s != nil {
 					switch m.deleteTab {
 					case 0:
-						store.Get().DeleteSite(m.deleteID)
+						if err := s.DeleteSite(m.deleteID); err != nil {
+							monitor.AddLog("Delete site failed: " + err.Error())
+						}
 						monitor.RemoveSite(m.deleteID)
 						m.adjustCursor(len(m.sites) - 1)
 					case 1:
-						store.Get().DeleteAlert(m.deleteID)
+						if err := s.DeleteAlert(m.deleteID); err != nil {
+							monitor.AddLog("Delete alert failed: " + err.Error())
+						}
 						m.adjustCursor(len(m.alerts) - 1)
 					case 3:
-						store.Get().DeleteUser(m.deleteID)
+						if err := s.DeleteUser(m.deleteID); err != nil {
+							monitor.AddLog("Delete user failed: " + err.Error())
+						}
 						m.adjustCursor(len(m.users) - 1)
 					}
 				}
@@ -313,8 +319,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					site := m.sites[m.cursor]
 					monitor.ToggleSitePause(site.ID)
 					site.Paused = !site.Paused
-					if store.Get() != nil {
-						store.Get().UpdateSitePaused(site.ID, site.Paused)
+					if s := store.Get(); s != nil {
+						_ = s.UpdateSitePaused(site.ID, site.Paused)
 					}
 					m.refreshData()
 				}
@@ -464,10 +470,14 @@ func (m *Model) refreshData() {
 	}
 	ordered = append(ordered, ungrouped...)
 	m.sites = ordered
-	if store.Get() != nil {
-		m.alerts = store.Get().GetAllAlerts()
+	if s := store.Get(); s != nil {
+		if alerts, err := s.GetAllAlerts(); err == nil {
+			m.alerts = alerts
+		}
 		if m.isAdmin {
-			m.users = store.Get().GetAllUsers()
+			if users, err := s.GetAllUsers(); err == nil {
+				m.users = users
+			}
 		}
 	}
 	m.logViewport.SetContent(strings.Join(monitor.GetLogs(), "\n"))

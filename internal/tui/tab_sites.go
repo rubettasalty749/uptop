@@ -361,12 +361,14 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 	}
 
 	alertOpts := []huh.Option[string]{huh.NewOption("None", "0")}
-	if store.Get() != nil {
-		for _, a := range store.Get().GetAllAlerts() {
-			alertOpts = append(alertOpts, huh.NewOption(
-				fmt.Sprintf("%s (%s)", a.Name, a.Type),
-				strconv.Itoa(a.ID),
-			))
+	if s := store.Get(); s != nil {
+		if alerts, err := s.GetAllAlerts(); err == nil {
+			for _, a := range alerts {
+				alertOpts = append(alertOpts, huh.NewOption(
+					fmt.Sprintf("%s (%s)", a.Name, a.Type),
+					strconv.Itoa(a.ID),
+				))
+			}
 		}
 	}
 
@@ -558,10 +560,14 @@ func (m *Model) submitSiteForm() {
 	}
 
 	if m.editID > 0 {
-		store.Get().UpdateSite(site)
+		if err := store.Get().UpdateSite(site); err != nil {
+			monitor.AddLog("Update site failed: " + err.Error())
+		}
 		monitor.UpdateSiteConfig(site)
 	} else {
-		store.Get().AddSite(site)
+		if err := store.Get().AddSite(site); err != nil {
+			monitor.AddLog("Add site failed: " + err.Error())
+		}
 	}
 	m.state = stateDashboard
 }

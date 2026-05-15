@@ -25,7 +25,11 @@ func InitHistoryFromStore() {
 	if s == nil {
 		return
 	}
-	all := s.LoadAllHistory(maxHistoryLen)
+	all, err := s.LoadAllHistory(maxHistoryLen)
+	if err != nil {
+		AddLog("Failed to load check history: " + err.Error())
+		return
+	}
 	historyMu.Lock()
 	defer historyMu.Unlock()
 	for siteID, records := range all {
@@ -71,7 +75,7 @@ func RecordCheck(siteID int, latency time.Duration, isUp bool) {
 	}
 
 	if s := store.Get(); s != nil {
-		go s.SaveCheck(siteID, latency.Nanoseconds(), isUp)
+		go func() { _ = s.SaveCheck(siteID, latency.Nanoseconds(), isUp) }()
 	}
 }
 

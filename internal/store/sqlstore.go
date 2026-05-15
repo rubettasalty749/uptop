@@ -48,7 +48,7 @@ func (s *SQLStore) Init() error {
 	return nil
 }
 
-func (s *SQLStore) GetSites() []models.Site {
+func (s *SQLStore) GetSites() ([]models.Site, error) {
 	bf := s.dialect.BoolFalse()
 	query := fmt.Sprintf(
 		"SELECT id, COALESCE(name, url), url, COALESCE(type, 'http'), COALESCE(token, ''), interval, alert_id, check_ssl, threshold, max_retries, COALESCE(hostname, ''), COALESCE(port, 0), COALESCE(timeout, 0), COALESCE(method, 'GET'), COALESCE(description, ''), COALESCE(parent_id, 0), COALESCE(accepted_codes, '200-299'), COALESCE(dns_resolve_type, ''), COALESCE(dns_server, ''), COALESCE(ignore_tls, %s), COALESCE(paused, %s) FROM sites",
@@ -56,107 +56,132 @@ func (s *SQLStore) GetSites() []models.Site {
 	)
 	rows, err := s.db.Query(query)
 	if err != nil {
-		return []models.Site{}
+		return nil, err
 	}
 	defer rows.Close()
 	var sites []models.Site
 	for rows.Next() {
 		var st models.Site
-		rows.Scan(&st.ID, &st.Name, &st.URL, &st.Type, &st.Token, &st.Interval, &st.AlertID,
+		if err := rows.Scan(&st.ID, &st.Name, &st.URL, &st.Type, &st.Token, &st.Interval, &st.AlertID,
 			&st.CheckSSL, &st.ExpiryThreshold, &st.MaxRetries, &st.Hostname, &st.Port, &st.Timeout,
 			&st.Method, &st.Description, &st.ParentID, &st.AcceptedCodes, &st.DNSResolveType,
-			&st.DNSServer, &st.IgnoreTLS, &st.Paused)
+			&st.DNSServer, &st.IgnoreTLS, &st.Paused); err != nil {
+			return sites, err
+		}
 		sites = append(sites, st)
 	}
-	return sites
+	return sites, rows.Err()
 }
 
-func (s *SQLStore) AddSite(site models.Site) {
+func (s *SQLStore) AddSite(site models.Site) error {
 	token := ""
 	if site.Type == "push" {
 		token = generateToken()
 	}
-	s.db.Exec(s.q("INSERT INTO sites (name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries, hostname, port, timeout, method, description, parent_id, accepted_codes, dns_resolve_type, dns_server, ignore_tls, paused) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+	_, err := s.db.Exec(s.q("INSERT INTO sites (name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries, hostname, port, timeout, method, description, parent_id, accepted_codes, dns_resolve_type, dns_server, ignore_tls, paused) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
 		site.Name, site.URL, site.Type, token, site.Interval, site.AlertID, site.CheckSSL, site.ExpiryThreshold, site.MaxRetries,
 		site.Hostname, site.Port, site.Timeout, site.Method, site.Description, site.ParentID, site.AcceptedCodes, site.DNSResolveType, site.DNSServer, site.IgnoreTLS, site.Paused)
+	return err
 }
 
-func (s *SQLStore) UpdateSite(site models.Site) {
+func (s *SQLStore) UpdateSite(site models.Site) error {
 	var existingToken string
 	s.db.QueryRow(s.q("SELECT token FROM sites WHERE id=?"), site.ID).Scan(&existingToken)
 	if site.Type == "push" && existingToken == "" {
 		existingToken = generateToken()
 	}
-	s.db.Exec(s.q("UPDATE sites SET name=?, url=?, type=?, token=?, interval=?, alert_id=?, check_ssl=?, threshold=?, max_retries=?, hostname=?, port=?, timeout=?, method=?, description=?, parent_id=?, accepted_codes=?, dns_resolve_type=?, dns_server=?, ignore_tls=?, paused=? WHERE id=?"),
+	_, err := s.db.Exec(s.q("UPDATE sites SET name=?, url=?, type=?, token=?, interval=?, alert_id=?, check_ssl=?, threshold=?, max_retries=?, hostname=?, port=?, timeout=?, method=?, description=?, parent_id=?, accepted_codes=?, dns_resolve_type=?, dns_server=?, ignore_tls=?, paused=? WHERE id=?"),
 		site.Name, site.URL, site.Type, existingToken, site.Interval, site.AlertID, site.CheckSSL, site.ExpiryThreshold, site.MaxRetries,
 		site.Hostname, site.Port, site.Timeout, site.Method, site.Description, site.ParentID, site.AcceptedCodes, site.DNSResolveType, site.DNSServer, site.IgnoreTLS, site.Paused, site.ID)
+	return err
 }
 
-func (s *SQLStore) UpdateSitePaused(id int, paused bool) {
-	s.db.Exec(s.q("UPDATE sites SET paused=? WHERE id=?"), paused, id)
+func (s *SQLStore) UpdateSitePaused(id int, paused bool) error {
+	_, err := s.db.Exec(s.q("UPDATE sites SET paused=? WHERE id=?"), paused, id)
+	return err
 }
 
-func (s *SQLStore) DeleteSite(id int) {
-	s.db.Exec(s.q("DELETE FROM sites WHERE id=?"), id)
+func (s *SQLStore) DeleteSite(id int) error {
+	_, err := s.db.Exec(s.q("DELETE FROM sites WHERE id=?"), id)
+	if err != nil {
+		return err
+	}
 	s.dialect.ResetSequenceOnEmpty(s.db, "sites")
+	return nil
 }
 
-func (s *SQLStore) GetAllAlerts() []models.AlertConfig {
+func (s *SQLStore) GetAllAlerts() ([]models.AlertConfig, error) {
 	rows, err := s.db.Query("SELECT id, name, type, settings FROM alerts")
 	if err != nil {
-		return []models.AlertConfig{}
+		return nil, err
 	}
 	defer rows.Close()
 	var alerts []models.AlertConfig
 	for rows.Next() {
 		var a models.AlertConfig
 		var settingsJSON string
-		rows.Scan(&a.ID, &a.Name, &a.Type, &settingsJSON)
+		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &settingsJSON); err != nil {
+			return alerts, err
+		}
 		json.Unmarshal([]byte(settingsJSON), &a.Settings)
 		alerts = append(alerts, a)
 	}
-	return alerts
+	return alerts, rows.Err()
 }
 
-func (s *SQLStore) GetAlert(id int) (models.AlertConfig, bool) {
+func (s *SQLStore) GetAlert(id int) (models.AlertConfig, error) {
 	var a models.AlertConfig
 	var settingsJSON string
 	err := s.db.QueryRow(s.q("SELECT id, name, type, settings FROM alerts WHERE id = ?"), id).Scan(&a.ID, &a.Name, &a.Type, &settingsJSON)
 	if err != nil {
-		return a, false
+		return a, err
 	}
 	json.Unmarshal([]byte(settingsJSON), &a.Settings)
-	return a, true
+	return a, nil
 }
 
-func (s *SQLStore) AddAlert(name, aType string, settings map[string]string) {
-	jsonBytes, _ := json.Marshal(settings)
-	s.db.Exec(s.q("INSERT INTO alerts (name, type, settings) VALUES (?, ?, ?)"), name, aType, string(jsonBytes))
+func (s *SQLStore) AddAlert(name, aType string, settings map[string]string) error {
+	jsonBytes, err := json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(s.q("INSERT INTO alerts (name, type, settings) VALUES (?, ?, ?)"), name, aType, string(jsonBytes))
+	return err
 }
 
-func (s *SQLStore) UpdateAlert(id int, name, aType string, settings map[string]string) {
-	jsonBytes, _ := json.Marshal(settings)
-	s.db.Exec(s.q("UPDATE alerts SET name=?, type=?, settings=? WHERE id=?"), name, aType, string(jsonBytes), id)
+func (s *SQLStore) UpdateAlert(id int, name, aType string, settings map[string]string) error {
+	jsonBytes, err := json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(s.q("UPDATE alerts SET name=?, type=?, settings=? WHERE id=?"), name, aType, string(jsonBytes), id)
+	return err
 }
 
-func (s *SQLStore) DeleteAlert(id int) {
-	s.db.Exec(s.q("DELETE FROM alerts WHERE id=?"), id)
+func (s *SQLStore) DeleteAlert(id int) error {
+	_, err := s.db.Exec(s.q("DELETE FROM alerts WHERE id=?"), id)
+	if err != nil {
+		return err
+	}
 	s.dialect.ResetSequenceOnEmpty(s.db, "alerts")
+	return nil
 }
 
-func (s *SQLStore) GetAllUsers() []models.User {
+func (s *SQLStore) GetAllUsers() ([]models.User, error) {
 	rows, err := s.db.Query("SELECT id, username, public_key, role FROM users")
 	if err != nil {
-		return []models.User{}
+		return nil, err
 	}
 	defer rows.Close()
 	var users []models.User
 	for rows.Next() {
 		var u models.User
-		rows.Scan(&u.ID, &u.Username, &u.PublicKey, &u.Role)
+		if err := rows.Scan(&u.ID, &u.Username, &u.PublicKey, &u.Role); err != nil {
+			return users, err
+		}
 		users = append(users, u)
 	}
-	return users
+	return users, rows.Err()
 }
 
 func (s *SQLStore) AddUser(username, publicKey, role string) error {
@@ -174,14 +199,18 @@ func (s *SQLStore) DeleteUser(id int) error {
 	return err
 }
 
-func (s *SQLStore) SaveCheck(siteID int, latencyNs int64, isUp bool) {
-	s.db.Exec(s.q("INSERT INTO check_history (site_id, latency_ns, is_up) VALUES (?, ?, ?)"), siteID, latencyNs, isUp)
-	s.db.Exec(s.q(`DELETE FROM check_history WHERE site_id = ? AND id NOT IN (
+func (s *SQLStore) SaveCheck(siteID int, latencyNs int64, isUp bool) error {
+	_, err := s.db.Exec(s.q("INSERT INTO check_history (site_id, latency_ns, is_up) VALUES (?, ?, ?)"), siteID, latencyNs, isUp)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(s.q(`DELETE FROM check_history WHERE site_id = ? AND id NOT IN (
 		SELECT id FROM check_history WHERE site_id = ? ORDER BY checked_at DESC LIMIT 1000
 	)`), siteID, siteID)
+	return err
 }
 
-func (s *SQLStore) LoadAllHistory(limit int) map[int][]models.CheckRecord {
+func (s *SQLStore) LoadAllHistory(limit int) (map[int][]models.CheckRecord, error) {
 	result := make(map[int][]models.CheckRecord)
 	rows, err := s.db.Query(s.q(`
 		SELECT site_id, latency_ns, is_up FROM (
@@ -190,12 +219,14 @@ func (s *SQLStore) LoadAllHistory(limit int) map[int][]models.CheckRecord {
 			FROM check_history
 		) sub WHERE rn <= ?`), limit)
 	if err != nil {
-		return result
+		return result, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var r models.CheckRecord
-		rows.Scan(&r.SiteID, &r.LatencyNs, &r.IsUp)
+		if err := rows.Scan(&r.SiteID, &r.LatencyNs, &r.IsUp); err != nil {
+			return result, err
+		}
 		result[r.SiteID] = append(result[r.SiteID], r)
 	}
 	for id, records := range result {
@@ -204,15 +235,23 @@ func (s *SQLStore) LoadAllHistory(limit int) map[int][]models.CheckRecord {
 		}
 		result[id] = records
 	}
-	return result
+	return result, rows.Err()
 }
 
-func (s *SQLStore) ExportData() models.Backup {
-	return models.Backup{
-		Sites:  s.GetSites(),
-		Alerts: s.GetAllAlerts(),
-		Users:  s.GetAllUsers(),
+func (s *SQLStore) ExportData() (models.Backup, error) {
+	sites, err := s.GetSites()
+	if err != nil {
+		return models.Backup{}, err
 	}
+	alerts, err := s.GetAllAlerts()
+	if err != nil {
+		return models.Backup{}, err
+	}
+	users, err := s.GetAllUsers()
+	if err != nil {
+		return models.Backup{}, err
+	}
+	return models.Backup{Sites: sites, Alerts: alerts, Users: users}, nil
 }
 
 func (s *SQLStore) ImportData(data models.Backup) error {
@@ -225,16 +264,25 @@ func (s *SQLStore) ImportData(data models.Backup) error {
 	s.dialect.ImportWipe(tx)
 
 	for _, u := range data.Users {
-		tx.Exec(s.q("INSERT INTO users (username, public_key, role) VALUES (?, ?, ?)"), u.Username, u.PublicKey, u.Role)
+		if _, err := tx.Exec(s.q("INSERT INTO users (username, public_key, role) VALUES (?, ?, ?)"), u.Username, u.PublicKey, u.Role); err != nil {
+			return err
+		}
 	}
 	for _, a := range data.Alerts {
-		jsonBytes, _ := json.Marshal(a.Settings)
-		tx.Exec(s.q("INSERT INTO alerts (id, name, type, settings) VALUES (?, ?, ?, ?)"), a.ID, a.Name, a.Type, string(jsonBytes))
+		jsonBytes, err := json.Marshal(a.Settings)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(s.q("INSERT INTO alerts (id, name, type, settings) VALUES (?, ?, ?, ?)"), a.ID, a.Name, a.Type, string(jsonBytes)); err != nil {
+			return err
+		}
 	}
 	for _, st := range data.Sites {
-		tx.Exec(s.q("INSERT INTO sites (id, name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries, hostname, port, timeout, method, description, parent_id, accepted_codes, dns_resolve_type, dns_server, ignore_tls, paused) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+		if _, err := tx.Exec(s.q("INSERT INTO sites (id, name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries, hostname, port, timeout, method, description, parent_id, accepted_codes, dns_resolve_type, dns_server, ignore_tls, paused) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
 			st.ID, st.Name, st.URL, st.Type, st.Token, st.Interval, st.AlertID, st.CheckSSL, st.ExpiryThreshold, st.MaxRetries,
-			st.Hostname, st.Port, st.Timeout, st.Method, st.Description, st.ParentID, st.AcceptedCodes, st.DNSResolveType, st.DNSServer, st.IgnoreTLS, st.Paused)
+			st.Hostname, st.Port, st.Timeout, st.Method, st.Description, st.ParentID, st.AcceptedCodes, st.DNSResolveType, st.DNSServer, st.IgnoreTLS, st.Paused); err != nil {
+			return err
+		}
 	}
 
 	s.dialect.ImportResetSequences(tx)

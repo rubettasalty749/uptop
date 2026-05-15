@@ -174,7 +174,8 @@ func startSSHServer(port int) {
 }
 
 func seedDemoData(s store.Store) {
-	if existing := s.GetSites(); len(existing) > 0 {
+	existing, _ := s.GetSites()
+	if len(existing) > 0 {
 		return
 	}
 	fmt.Println("Seeding demo data...")
@@ -187,7 +188,7 @@ func seedDemoData(s store.Store) {
 		"from": "oncall@example.com", "to": "team@example.com",
 	})
 
-	alerts := s.GetAllAlerts()
+	alerts, _ := s.GetAllAlerts()
 	alertID := 0
 	if len(alerts) > 0 {
 		alertID = alerts[0].ID
@@ -206,7 +207,10 @@ func seedDemoData(s store.Store) {
 }
 
 func isKeyAllowed(incomingKey ssh.PublicKey) bool {
-	users := store.Get().GetAllUsers()
+	users, err := store.Get().GetAllUsers()
+	if err != nil {
+		return false
+	}
 	for _, u := range users {
 		allowedKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(u.PublicKey))
 		if err != nil {
