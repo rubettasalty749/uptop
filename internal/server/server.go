@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"go-upkeep/internal/importer"
+	"go-upkeep/internal/metrics"
 	"go-upkeep/internal/models"
 	"go-upkeep/internal/monitor"
 	"go-upkeep/internal/store"
@@ -242,7 +243,10 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) {
 		w.Write([]byte(fmt.Sprintf("Imported %d monitors, %d alerts from Kuma v%s", len(backup.Sites), len(backup.Alerts), kb.Version)))
 	})
 
-	// 6. Status Page
+	// 6. Prometheus Metrics
+	mux.HandleFunc("/metrics", metrics.Handler(eng))
+
+	// 7. Status Page
 	if cfg.EnableStatus {
 		mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) { renderStatusPage(w, cfg.Title, eng) })
 		mux.HandleFunc("/status/json", func(w http.ResponseWriter, r *http.Request) {
