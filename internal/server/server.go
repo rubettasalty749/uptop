@@ -148,7 +148,7 @@ type ServerConfig struct {
 	ClusterKey   string // Shared Secret for Security
 }
 
-func Start(cfg ServerConfig) {
+func Start(cfg ServerConfig, s store.Store) {
 	if cfg.ClusterKey == "" {
 		fmt.Println("WARNING: No UPKEEP_CLUSTER_SECRET set. Cluster API endpoints are unauthenticated.")
 	}
@@ -185,7 +185,7 @@ func Start(cfg ServerConfig) {
 			http.Error(w, "Unauthorized: UPKEEP_CLUSTER_SECRET required", 401)
 			return
 		}
-		data, err := store.Get().ExportData()
+		data, err := s.ExportData()
 		if err != nil {
 			log.Printf("Export failed: %v", err)
 			http.Error(w, "Export failed", 500)
@@ -209,7 +209,7 @@ func Start(cfg ServerConfig) {
 			http.Error(w, "Invalid JSON", 400)
 			return
 		}
-		if err := store.Get().ImportData(data); err != nil {
+		if err := s.ImportData(data); err != nil {
 			log.Printf("Import failed: %v", err)
 			http.Error(w, "Import failed", 500)
 			return
@@ -234,7 +234,7 @@ func Start(cfg ServerConfig) {
 			return
 		}
 		backup := importer.ConvertKuma(&kb)
-		if err := store.Get().ImportData(backup); err != nil {
+		if err := s.ImportData(backup); err != nil {
 			log.Printf("Kuma import failed: %v", err)
 			http.Error(w, "Import failed", 500)
 			return

@@ -68,6 +68,7 @@ type Model struct {
 	deleteTab  int
 
 	collapsed map[int]bool
+	store     store.Store
 
 	// harmonica animation state
 	pulseSpring harmonica.Spring
@@ -80,7 +81,7 @@ type Model struct {
 	users  []models.User
 }
 
-func InitialModel(isAdmin bool) Model {
+func InitialModel(isAdmin bool, s store.Store) Model {
 	vpLogs := viewport.New(100, 20)
 	vpLogs.SetContent("Waiting for logs...")
 	z := zone.New()
@@ -90,6 +91,7 @@ func InitialModel(isAdmin bool) Model {
 		logViewport:  vpLogs,
 		maxTableRows: 5,
 		isAdmin:      isAdmin,
+		store:        s,
 		zones:        z,
 		pulseSpring:  spring,
 		collapsed:    make(map[int]bool),
@@ -107,25 +109,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			switch keyMsg.String() {
 			case "y", "Y":
-				if s := store.Get(); s != nil {
-					switch m.deleteTab {
-					case 0:
-						if err := s.DeleteSite(m.deleteID); err != nil {
-							monitor.AddLog("Delete site failed: " + err.Error())
-						}
-						monitor.RemoveSite(m.deleteID)
-						m.adjustCursor(len(m.sites) - 1)
-					case 1:
-						if err := s.DeleteAlert(m.deleteID); err != nil {
-							monitor.AddLog("Delete alert failed: " + err.Error())
-						}
-						m.adjustCursor(len(m.alerts) - 1)
-					case 3:
-						if err := s.DeleteUser(m.deleteID); err != nil {
-							monitor.AddLog("Delete user failed: " + err.Error())
-						}
-						m.adjustCursor(len(m.users) - 1)
+				switch m.deleteTab {
+				case 0:
+					if err := m.store.DeleteSite(m.deleteID); err != nil {
+						monitor.AddLog("Delete site failed: " + err.Error())
 					}
+					monitor.RemoveSite(m.deleteID)
+					m.adjustCursor(len(m.sites) - 1)
+				case 1:
+					if err := m.store.DeleteAlert(m.deleteID); err != nil {
+						monitor.AddLog("Delete alert failed: " + err.Error())
+					}
+					m.adjustCursor(len(m.alerts) - 1)
+				case 3:
+					if err := m.store.DeleteUser(m.deleteID); err != nil {
+						monitor.AddLog("Delete user failed: " + err.Error())
+					}
+					m.adjustCursor(len(m.users) - 1)
 				}
 				m.refreshData()
 				m.state = stateDashboard
@@ -319,9 +319,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					site := m.sites[m.cursor]
 					monitor.ToggleSitePause(site.ID)
 					site.Paused = !site.Paused
-					if s := store.Get(); s != nil {
-						_ = s.UpdateSitePaused(site.ID, site.Paused)
-					}
+					_ = m.store.UpdateSitePaused(site.ID, site.Paused)
 					m.refreshData()
 				}
 			case "d", "backspace":
@@ -470,23 +468,18 @@ func (m *Model) refreshData() {
 	}
 	ordered = append(ordered, ungrouped...)
 	m.sites = ordered
-	if s := store.Get(); s != nil {
-		if alerts, err := s.GetAllAlerts(); err == nil {
-			m.alerts = alerts
-		}
-		if m.isAdmin {
-			if users, err := s.GetAllUsers(); err == nil {
-				m.users = users
-			}
+	if alerts, err := m.store.GetAllAlerts(); err == nil {
+		m.alerts = alerts
+	}
+	if m.isAdmin {
+		if users, err := m.store.GetAllUsers(); err == nil {
+			m.users = users
 		}
 	}
 	m.logViewport.SetContent(strings.Join(monitor.GetLogs(), "\n"))
 }
 
 func (m *Model) submitForm() {
-	if store.Get() == nil {
-		return
-	}
 	switch m.state {
 	case stateFormSite:
 		if m.siteFormData != nil {

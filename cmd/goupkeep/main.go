@@ -97,8 +97,6 @@ func main() {
 		fmt.Printf("Database init error: %v\n", err)
 		os.Exit(1)
 	}
-	store.SetGlobal(s)
-
 	if *demo {
 		seedDemoData(s)
 	}
@@ -117,15 +115,15 @@ func main() {
 		fmt.Printf("Imported %d monitors and %d alerts from Uptime Kuma v%s\n", len(backup.Sites), len(backup.Alerts), kb.Version)
 	}
 
-	monitor.InitHistoryFromStore()
-	monitor.StartEngine()
+	monitor.InitHistoryFromStore(s)
+	monitor.StartEngine(s)
 
 	server.Start(server.ServerConfig{
 		Port:         httpPort,
 		EnableStatus: enableStatus,
 		Title:        statusTitle,
 		ClusterKey:   clusterKey,
-	})
+	}, s)
 
 	cluster.Start(cluster.Config{
 		Mode:      clusterMode,
@@ -133,10 +131,10 @@ func main() {
 		SharedKey: clusterKey,
 	})
 
-	startSSHServer(*port)
+	startSSHServer(*port, s)
 
 	if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
-		p := tea.NewProgram(tui.InitialModel(true), tea.WithAltScreen(), tea.WithMouseCellMotion())
+		p := tea.NewProgram(tui.InitialModel(true, s), tea.WithAltScreen(), tea.WithMouseCellMotion())
 		if _, err := p.Run(); err != nil {
 			fmt.Printf("Error: %v\n", err)
 		}
@@ -149,16 +147,16 @@ func main() {
 	}
 }
 
-func startSSHServer(port int) {
+func startSSHServer(port int, db store.Store) {
 	s, err := wish.NewServer(
 		wish.WithAddress(fmt.Sprintf(":%d", port)),
 		wish.WithHostKeyPath(".ssh/id_ed25519"),
 		wish.WithPublicKeyAuth(func(ctx ssh.Context, key ssh.PublicKey) bool {
-			return isKeyAllowed(key)
+			return isKeyAllowed(db, key)
 		}),
 		wish.WithMiddleware(
 			bm.Middleware(func(s ssh.Session) (tea.Model, []tea.ProgramOption) {
-				return tui.InitialModel(false), []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion()}
+				return tui.InitialModel(false, db), []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion()}
 			}),
 		),
 	)
@@ -206,8 +204,8 @@ func seedDemoData(s store.Store) {
 	s.AddSite(models.Site{Name: "SSH Server", Type: "port", Interval: 60, AlertID: alertID, Hostname: "10.0.0.1", Port: 22, Timeout: 5, ExpiryThreshold: 7})
 }
 
-func isKeyAllowed(incomingKey ssh.PublicKey) bool {
-	users, err := store.Get().GetAllUsers()
+func isKeyAllowed(db store.Store, incomingKey ssh.PublicKey) bool {
+	users, err := db.GetAllUsers()
 	if err != nil {
 		return false
 	}

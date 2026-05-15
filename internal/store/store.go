@@ -35,13 +35,3 @@ type Store interface {
 	ExportData() (models.Backup, error)
 	ImportData(data models.Backup) error
 }
-
-var Current Store
-
-func SetGlobal(s Store) {
-	Current = s
-}
-
-func Get() Store {
-	return Current
-}

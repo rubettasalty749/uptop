@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"go-upkeep/internal/models"
 	"go-upkeep/internal/monitor"
-	"go-upkeep/internal/store"
 	"net/url"
 	"strconv"
 	"strings"
@@ -361,14 +360,12 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 	}
 
 	alertOpts := []huh.Option[string]{huh.NewOption("None", "0")}
-	if s := store.Get(); s != nil {
-		if alerts, err := s.GetAllAlerts(); err == nil {
-			for _, a := range alerts {
-				alertOpts = append(alertOpts, huh.NewOption(
-					fmt.Sprintf("%s (%s)", a.Name, a.Type),
-					strconv.Itoa(a.ID),
-				))
-			}
+	if alerts, err := m.store.GetAllAlerts(); err == nil {
+		for _, a := range alerts {
+			alertOpts = append(alertOpts, huh.NewOption(
+				fmt.Sprintf("%s (%s)", a.Name, a.Type),
+				strconv.Itoa(a.ID),
+			))
 		}
 	}
 
@@ -560,12 +557,12 @@ func (m *Model) submitSiteForm() {
 	}
 
 	if m.editID > 0 {
-		if err := store.Get().UpdateSite(site); err != nil {
+		if err := m.store.UpdateSite(site); err != nil {
 			monitor.AddLog("Update site failed: " + err.Error())
 		}
 		monitor.UpdateSiteConfig(site)
 	} else {
-		if err := store.Get().AddSite(site); err != nil {
+		if err := m.store.AddSite(site); err != nil {
 			monitor.AddLog("Add site failed: " + err.Error())
 		}
 	}

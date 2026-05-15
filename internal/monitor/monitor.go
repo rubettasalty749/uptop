@@ -55,6 +55,8 @@ var (
 
 	insecureSkipVerify bool
 
+	db store.Store
+
 	strictClient = &http.Client{
 		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: false}},
 	}
@@ -119,16 +121,11 @@ func RecordHeartbeat(token string) bool {
 	return true
 }
 
-func StartEngine() {
+func StartEngine(s store.Store) {
+	db = s
 	go func() {
 		for {
-			s_instance := store.Get()
-			if s_instance == nil {
-				time.Sleep(1 * time.Second)
-				continue
-			}
-
-			sites, err := s_instance.GetSites()
+			sites, err := db.GetSites()
 			if err != nil {
 				AddLog(fmt.Sprintf("Failed to load sites: %v", err))
 				time.Sleep(5 * time.Second)
@@ -407,11 +404,10 @@ func handleStatusChange(site models.Site, rawStatus string, code int, latency ti
 }
 
 func triggerAlert(alertID int, title, message string) {
-	s_instance := store.Get()
-	if s_instance == nil {
+	if db == nil {
 		return
 	}
-	cfg, err := s_instance.GetAlert(alertID)
+	cfg, err := db.GetAlert(alertID)
 	if err != nil {
 		return
 	}

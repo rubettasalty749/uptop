@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"go-upkeep/internal/monitor"
-	"go-upkeep/internal/store"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
@@ -146,11 +145,11 @@ func (m *Model) initUserHuhForm() tea.Cmd {
 func (m *Model) submitUserForm() {
 	d := m.userFormData
 	if m.editID > 0 {
-		if err := store.Get().UpdateUser(m.editID, d.Username, d.PublicKey, d.Role); err != nil {
+		if err := m.store.UpdateUser(m.editID, d.Username, d.PublicKey, d.Role); err != nil {
 			monitor.AddLog("Update user failed: " + err.Error())
 		}
 	} else {
-		if err := store.Get().AddUser(d.Username, d.PublicKey, d.Role); err != nil {
+		if err := m.store.AddUser(d.Username, d.PublicKey, d.Role); err != nil {
 			monitor.AddLog("Add user failed: " + err.Error())
 		}
 	}

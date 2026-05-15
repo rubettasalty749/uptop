@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"go-upkeep/internal/monitor"
-	"go-upkeep/internal/store"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
@@ -278,11 +277,11 @@ func (m *Model) submitAlertForm() {
 	}
 
 	if m.editID > 0 {
-		if err := store.Get().UpdateAlert(m.editID, d.Name, d.AlertType, settings); err != nil {
+		if err := m.store.UpdateAlert(m.editID, d.Name, d.AlertType, settings); err != nil {
 			monitor.AddLog("Update alert failed: " + err.Error())
 		}
 	} else {
-		if err := store.Get().AddAlert(d.Name, d.AlertType, settings); err != nil {
+		if err := m.store.AddAlert(d.Name, d.AlertType, settings); err != nil {
 			monitor.AddLog("Add alert failed: " + err.Error())
 		}
 	}
