@@ -21,20 +21,22 @@ var siteGroupStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("#7D56F4"))
 
 type siteFormData struct {
-	Name        string
-	SiteType    string
-	URL         string
-	Interval    string
-	AlertID     string
-	CheckSSL    bool
-	Threshold   string
-	Retries     string
-	Hostname    string
-	Port        string
-	Timeout     string
-	Description string
-	IgnoreTLS   bool
-	GroupID     string
+	Name          string
+	SiteType      string
+	URL           string
+	Method        string
+	AcceptedCodes string
+	Interval      string
+	AlertID       string
+	CheckSSL      bool
+	Threshold     string
+	Retries       string
+	Hostname      string
+	Port          string
+	Timeout       string
+	Description   string
+	IgnoreTLS     bool
+	GroupID       string
 }
 
 func latencySparkline(latencies []time.Duration, width int) string {
@@ -277,13 +279,15 @@ func (m Model) viewSitesTab() string {
 
 func (m *Model) initSiteHuhForm() tea.Cmd {
 	m.siteFormData = &siteFormData{
-		SiteType:  "http",
-		Interval:  "60",
-		Threshold: "7",
-		Retries:   "0",
-		Timeout:   "5",
-		Port:      "0",
-		GroupID:   "0",
+		SiteType:      "http",
+		Method:        "GET",
+		AcceptedCodes: "200-299",
+		Interval:      "60",
+		Threshold:     "7",
+		Retries:       "0",
+		Timeout:       "5",
+		Port:          "0",
+		GroupID:       "0",
 	}
 
 	if m.editID > 0 {
@@ -303,6 +307,8 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				m.siteFormData.Description = site.Description
 				m.siteFormData.IgnoreTLS = site.IgnoreTLS
 				m.siteFormData.GroupID = strconv.Itoa(site.ParentID)
+				m.siteFormData.Method = site.Method
+				m.siteFormData.AcceptedCodes = site.AcceptedCodes
 				break
 			}
 		}
@@ -433,6 +439,24 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 			return m.siteFormData.SiteType == "group"
 		}),
 		huh.NewGroup(
+			huh.NewSelect[string]().Title("HTTP Method").
+				Options(
+					huh.NewOption("GET", "GET"),
+					huh.NewOption("POST", "POST"),
+					huh.NewOption("PUT", "PUT"),
+					huh.NewOption("PATCH", "PATCH"),
+					huh.NewOption("DELETE", "DELETE"),
+					huh.NewOption("HEAD", "HEAD"),
+					huh.NewOption("OPTIONS", "OPTIONS"),
+				).Value(&m.siteFormData.Method),
+			huh.NewInput().Title("Accepted Status Codes").
+				Placeholder("200-299").
+				Description("Ranges (200-299) and singles (301) separated by commas").
+				Value(&m.siteFormData.AcceptedCodes),
+		).Title("HTTP Settings").WithHideFunc(func() bool {
+			return m.siteFormData.SiteType != "http"
+		}),
+		huh.NewGroup(
 			huh.NewConfirm().Title("Monitor SSL Certificate?").
 				Value(&m.siteFormData.CheckSSL),
 			huh.NewInput().Title("SSL Warning Threshold (days)").
@@ -503,6 +527,8 @@ func (m *Model) submitSiteForm() {
 		Description:     d.Description,
 		IgnoreTLS:       d.IgnoreTLS,
 		ParentID:        groupID,
+		Method:          d.Method,
+		AcceptedCodes:   d.AcceptedCodes,
 	}
 
 	if m.editID > 0 {
