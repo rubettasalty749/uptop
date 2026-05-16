@@ -598,13 +598,21 @@ func (m Model) viewDashboard() string {
 		}
 	}
 
-	sitesLabel := "Sites"
+	var sitesLabel string
 	if downCount > 0 {
 		sitesLabel = fmt.Sprintf("Sites (%d↓)", downCount)
+	} else if len(m.sites) > 0 {
+		sitesLabel = fmt.Sprintf("Sites (%d)", len(m.sites))
+	} else {
+		sitesLabel = "Sites"
 	}
-	nodesLabel := "Nodes"
+	var nodesLabel string
 	if offlineNodes > 0 {
 		nodesLabel = fmt.Sprintf("Nodes (%d!)", offlineNodes)
+	} else if len(m.nodes) > 0 {
+		nodesLabel = fmt.Sprintf("Nodes (%d)", len(m.nodes))
+	} else {
+		nodesLabel = "Nodes"
 	}
 
 	tabs := []string{sitesLabel, "Alerts", "Logs", nodesLabel}
@@ -643,7 +651,13 @@ func (m Model) viewDashboard() string {
 	}
 
 	upCount := len(m.sites) - downCount
-	statusParts := []string{fmt.Sprintf("%d/%d UP", upCount, len(m.sites))}
+	var upStr string
+	if downCount > 0 {
+		upStr = dangerStyle.Render(fmt.Sprintf("%d/%d UP", upCount, len(m.sites)))
+	} else {
+		upStr = specialStyle.Render(fmt.Sprintf("%d/%d UP", upCount, len(m.sites)))
+	}
+	statusParts := []string{upStr}
 	if len(m.nodes) > 0 {
 		online := 0
 		for _, n := range m.nodes {
@@ -653,7 +667,7 @@ func (m Model) viewDashboard() string {
 		}
 		statusParts = append(statusParts, fmt.Sprintf("%d probes", online))
 	}
-	statusLine := subtleStyle.Render(strings.Join(statusParts, " · "))
+	statusLine := strings.Join(statusParts, subtleStyle.Render(" · "))
 
 	var keys string
 	switch m.currentTab {
