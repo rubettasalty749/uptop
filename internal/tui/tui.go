@@ -508,10 +508,10 @@ func (m *Model) refreshData() {
 	sort.Slice(groups, func(i, j int) bool { return groups[i].ID < groups[j].ID })
 	for pid := range children {
 		c := children[pid]
-		sort.Slice(c, func(i, j int) bool { return siteOrder(c[i]) < siteOrder(c[j]) })
+		sort.SliceStable(c, func(i, j int) bool { return siteOrder(c[i]) < siteOrder(c[j]) })
 		children[pid] = c
 	}
-	sort.Slice(ungrouped, func(i, j int) bool { return siteOrder(ungrouped[i]) < siteOrder(ungrouped[j]) })
+	sort.SliceStable(ungrouped, func(i, j int) bool { return siteOrder(ungrouped[i]) < siteOrder(ungrouped[j]) })
 
 	var ordered []models.Site
 	for _, g := range groups {
