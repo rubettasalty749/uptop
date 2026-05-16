@@ -243,10 +243,97 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) {
 		w.Write([]byte(fmt.Sprintf("Imported %d monitors, %d alerts from Kuma v%s", len(backup.Sites), len(backup.Alerts), kb.Version)))
 	})
 
-	// 6. Prometheus Metrics
+	// 6. Probe Registration
+	mux.HandleFunc("/api/probe/register", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "POST required", 405)
+			return
+		}
+		if cfg.ClusterKey == "" || r.Header.Get("X-Upkeep-Secret") != cfg.ClusterKey {
+			http.Error(w, "Unauthorized", 401)
+			return
+		}
+		var req struct {
+			ID      string `json:"id"`
+			Name    string `json:"name"`
+			Region  string `json:"region"`
+			Version string `json:"version"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid JSON", 400)
+			return
+		}
+		if req.ID == "" {
+			http.Error(w, "id is required", 400)
+			return
+		}
+		if err := s.RegisterNode(models.ProbeNode{
+			ID: req.ID, Name: req.Name, Region: req.Region, Version: req.Version,
+		}); err != nil {
+			log.Printf("Probe register failed: %v", err)
+			http.Error(w, "Registration failed", 500)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	})
+
+	// 7. Probe Assignment Fetch
+	mux.HandleFunc("/api/probe/assignments", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.ClusterKey == "" || r.Header.Get("X-Upkeep-Secret") != cfg.ClusterKey {
+			http.Error(w, "Unauthorized", 401)
+			return
+		}
+		sites := eng.GetAllSites()
+		var assigned []models.Site
+		for _, site := range sites {
+			if site.Paused || site.Type == "push" || site.Type == "group" {
+				continue
+			}
+			assigned = append(assigned, site)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string][]models.Site{"sites": assigned})
+	})
+
+	// 8. Probe Result Submission
+	mux.HandleFunc("/api/probe/results", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "POST required", 405)
+			return
+		}
+		if cfg.ClusterKey == "" || r.Header.Get("X-Upkeep-Secret") != cfg.ClusterKey {
+			http.Error(w, "Unauthorized", 401)
+			return
+		}
+		var req struct {
+			NodeID  string `json:"node_id"`
+			Results []struct {
+				SiteID    int   `json:"site_id"`
+				LatencyNs int64 `json:"latency_ns"`
+				IsUp      bool  `json:"is_up"`
+			} `json:"results"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid JSON", 400)
+			return
+		}
+		if req.NodeID == "" {
+			http.Error(w, "node_id is required", 400)
+			return
+		}
+		for _, result := range req.Results {
+			if err := s.SaveCheckFromNode(result.SiteID, req.NodeID, result.LatencyNs, result.IsUp); err != nil {
+				log.Printf("Failed to save probe result: %v", err)
+			}
+		}
+		s.UpdateNodeLastSeen(req.NodeID)
+		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	})
+
+	// 9. Prometheus Metrics
 	mux.HandleFunc("/metrics", metrics.Handler(eng))
 
-	// 7. Status Page
+	// 10. Status Page
 	if cfg.EnableStatus {
 		mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) { renderStatusPage(w, cfg.Title, eng) })
 		mux.HandleFunc("/status/json", func(w http.ResponseWriter, r *http.Request) {

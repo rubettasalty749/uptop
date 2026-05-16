@@ -35,7 +35,15 @@ type Store interface {
 
 	// History
 	SaveCheck(siteID int, latencyNs int64, isUp bool) error
+	SaveCheckFromNode(siteID int, nodeID string, latencyNs int64, isUp bool) error
 	LoadAllHistory(limit int) (map[int][]models.CheckRecord, error)
+
+	// Nodes
+	RegisterNode(node models.ProbeNode) error
+	GetNode(id string) (models.ProbeNode, error)
+	GetAllNodes() ([]models.ProbeNode, error)
+	UpdateNodeLastSeen(id string) error
+	DeleteNode(id string) error
 
 	// Backup & Restore
 	ExportData() (models.Backup, error)

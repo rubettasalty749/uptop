@@ -44,6 +44,13 @@ func (d *PostgresDialect) CreateTablesSQL() []string {
 			is_up BOOLEAN, checked_at TIMESTAMP DEFAULT NOW()
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_check_history_site ON check_history(site_id, checked_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS nodes (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			region TEXT DEFAULT '',
+			last_seen TIMESTAMP DEFAULT NOW(),
+			version TEXT DEFAULT ''
+		)`,
 	}
 }
 
@@ -60,7 +67,12 @@ func (d *PostgresDialect) MigrationsSQL() []string {
 		"ALTER TABLE sites ADD COLUMN IF NOT EXISTS dns_server TEXT DEFAULT ''",
 		"ALTER TABLE sites ADD COLUMN IF NOT EXISTS ignore_tls BOOLEAN DEFAULT FALSE",
 		"ALTER TABLE sites ADD COLUMN IF NOT EXISTS paused BOOLEAN DEFAULT FALSE",
+		"ALTER TABLE check_history ADD COLUMN IF NOT EXISTS node_id TEXT DEFAULT ''",
 	}
+}
+
+func (d *PostgresDialect) UpsertNodeSQL() string {
+	return "INSERT INTO nodes (id, name, region, last_seen, version) VALUES ($1, $2, $3, NOW(), $4) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, region = EXCLUDED.region, last_seen = NOW(), version = EXCLUDED.version"
 }
 
 func (d *PostgresDialect) ResetSequenceOnEmpty(db *sql.DB, table string) {}

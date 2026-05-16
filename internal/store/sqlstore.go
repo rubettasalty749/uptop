@@ -247,13 +247,56 @@ func (s *SQLStore) DeleteUser(id int) error {
 }
 
 func (s *SQLStore) SaveCheck(siteID int, latencyNs int64, isUp bool) error {
-	_, err := s.db.Exec(s.q("INSERT INTO check_history (site_id, latency_ns, is_up) VALUES (?, ?, ?)"), siteID, latencyNs, isUp)
+	return s.SaveCheckFromNode(siteID, "", latencyNs, isUp)
+}
+
+func (s *SQLStore) SaveCheckFromNode(siteID int, nodeID string, latencyNs int64, isUp bool) error {
+	_, err := s.db.Exec(s.q("INSERT INTO check_history (site_id, node_id, latency_ns, is_up) VALUES (?, ?, ?, ?)"), siteID, nodeID, latencyNs, isUp)
 	if err != nil {
 		return err
 	}
 	_, err = s.db.Exec(s.q(`DELETE FROM check_history WHERE site_id = ? AND id NOT IN (
 		SELECT id FROM check_history WHERE site_id = ? ORDER BY checked_at DESC LIMIT 1000
 	)`), siteID, siteID)
+	return err
+}
+
+func (s *SQLStore) RegisterNode(node models.ProbeNode) error {
+	_, err := s.db.Exec(s.dialect.UpsertNodeSQL(), node.ID, node.Name, node.Region, node.Version)
+	return err
+}
+
+func (s *SQLStore) GetNode(id string) (models.ProbeNode, error) {
+	var n models.ProbeNode
+	err := s.db.QueryRow(s.q("SELECT id, name, region, last_seen, version FROM nodes WHERE id = ?"), id).
+		Scan(&n.ID, &n.Name, &n.Region, &n.LastSeen, &n.Version)
+	return n, err
+}
+
+func (s *SQLStore) GetAllNodes() ([]models.ProbeNode, error) {
+	rows, err := s.db.Query("SELECT id, name, region, last_seen, version FROM nodes ORDER BY region, name")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var nodes []models.ProbeNode
+	for rows.Next() {
+		var n models.ProbeNode
+		if err := rows.Scan(&n.ID, &n.Name, &n.Region, &n.LastSeen, &n.Version); err != nil {
+			return nodes, err
+		}
+		nodes = append(nodes, n)
+	}
+	return nodes, rows.Err()
+}
+
+func (s *SQLStore) UpdateNodeLastSeen(id string) error {
+	_, err := s.db.Exec(s.q("UPDATE nodes SET last_seen = CURRENT_TIMESTAMP WHERE id = ?"), id)
+	return err
+}
+
+func (s *SQLStore) DeleteNode(id string) error {
+	_, err := s.db.Exec(s.q("DELETE FROM nodes WHERE id = ?"), id)
 	return err
 }
 
