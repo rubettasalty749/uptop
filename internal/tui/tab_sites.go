@@ -211,8 +211,8 @@ func (m Model) dynamicWidths() (nameW, sparkW int) {
 	if sparkW < 10 {
 		sparkW = 10
 	}
-	if sparkW > 40 {
-		sparkW = 40
+	if sparkW > 60 {
+		sparkW = 60
 	}
 	return
 }
