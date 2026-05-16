@@ -68,6 +68,20 @@ func (e *Engine) AddLog(msg string) {
 	if len(e.logStore) > 100 {
 		e.logStore = e.logStore[:100]
 	}
+	go func() { _ = e.db.SaveLog(entry) }()
+}
+
+func (e *Engine) InitLogs() {
+	logs, err := e.db.LoadLogs(100)
+	if err != nil {
+		return
+	}
+	if len(logs) == 0 {
+		return
+	}
+	e.logMu.Lock()
+	defer e.logMu.Unlock()
+	e.logStore = logs
 }
 
 func (e *Engine) GetLogs() []string {

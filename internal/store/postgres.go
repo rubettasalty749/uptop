@@ -51,6 +51,11 @@ func (d *PostgresDialect) CreateTablesSQL() []string {
 			last_seen TIMESTAMP DEFAULT NOW(),
 			version TEXT DEFAULT ''
 		)`,
+		`CREATE TABLE IF NOT EXISTS logs (
+			id SERIAL PRIMARY KEY,
+			message TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT NOW()
+		)`,
 	}
 }
 

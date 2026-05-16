@@ -45,6 +45,10 @@ type Store interface {
 	UpdateNodeLastSeen(id string) error
 	DeleteNode(id string) error
 
+	// Logs
+	SaveLog(message string) error
+	LoadLogs(limit int) ([]string, error)
+
 	// Backup & Restore
 	ExportData() (models.Backup, error)
 	ImportData(data models.Backup) error
