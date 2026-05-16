@@ -195,19 +195,31 @@ func fmtStatus(status string, paused bool) string {
 	}
 }
 
-func (m Model) nameWidth() int {
-	w := m.termWidth - 105
-	if w < 13 {
-		w = 13
+func (m Model) dynamicWidths() (nameW, sparkW int) {
+	fixed := 6 + 10 + 10 + 8 + 8 + 7 + 9 // #, TYPE, STATUS, LATENCY, UPTIME, SSL, RETRY
+	overhead := 30                       // cell padding + borders
+	avail := m.termWidth - 6 - fixed - overhead
+	if avail < 30 {
+		avail = 30
 	}
-	if w > 40 {
-		w = 40
+	nameW = avail / 2
+	sparkW = avail - nameW - 4 // -4 for spark column padding
+	if nameW < 13 {
+		nameW = 13
 	}
-	return w
+	if nameW > 40 {
+		nameW = 40
+	}
+	if sparkW < 10 {
+		sparkW = 10
+	}
+	if sparkW > 40 {
+		sparkW = 40
+	}
+	return
 }
 
 func (m Model) viewSitesTab() string {
-	const sparkWidth = 20
 
 	if len(m.sites) == 0 {
 		welcome := lipgloss.NewStyle().
@@ -222,6 +234,7 @@ func (m Model) viewSitesTab() string {
 		return "\n" + welcome
 	}
 
+	nameW, sparkWidth := m.dynamicWidths()
 	colWidths := []int{6, 0, 10, 10, 8, 8, sparkWidth + 4, 7, 9}
 
 	var groupRows map[int]bool
@@ -242,7 +255,7 @@ func (m Model) viewSitesTab() string {
 					}
 					rows = append(rows, []string{
 						strconv.Itoa(i + 1),
-						m.zones.Mark(fmt.Sprintf("site-%d", i), arrow+" "+limitStr(site.Name, m.nameWidth()-2)),
+						m.zones.Mark(fmt.Sprintf("site-%d", i), arrow+" "+limitStr(site.Name, nameW-2)),
 						"group",
 						fmtStatus(site.Status, site.Paused),
 						subtleStyle.Render("—"),
@@ -260,9 +273,9 @@ func (m Model) viewSitesTab() string {
 					if i+1 >= len(m.sites) || m.sites[i+1].ParentID != site.ParentID {
 						prefix = "└"
 					}
-					name = prefix + " " + limitStr(name, m.nameWidth()-2)
+					name = prefix + " " + limitStr(name, nameW-2)
 				} else {
-					name = limitStr(name, m.nameWidth())
+					name = limitStr(name, nameW)
 				}
 
 				hist, _ := m.engine.GetHistory(site.ID)
