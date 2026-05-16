@@ -19,7 +19,7 @@ import (
 )
 
 var (
-	subtleStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#383838"})
+	subtleStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#9ca0b0", Dark: "#565f89"})
 	specialStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#43BF6D", Dark: "#73F59F"})
 	warnStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#F0E442", Dark: "#F0E442"})
 	dangerStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#F25D94", Dark: "#F25D94"})
@@ -37,9 +37,11 @@ const (
 	stateDashboard sessionState = iota
 	stateLogs
 	stateUsers
+	stateDetail
 	stateFormSite
 	stateFormAlert
 	stateFormUser
+	stateConfirmDelete
 )
 
 type Model struct {
@@ -48,6 +50,8 @@ type Model struct {
 	cursor       int
 	tableOffset  int
 	maxTableRows int
+	termWidth    int
+	termHeight   int
 	editID       int
 	editToken    string
 
@@ -60,6 +64,14 @@ type Model struct {
 	isAdmin     bool
 	zones       *zone.Manager
 
+	deleteID   int
+	deleteName string
+	deleteTab  int
+
+	collapsed map[int]bool
+	store     store.Store
+	engine    *monitor.Engine
+
 	// harmonica animation state
 	pulseSpring harmonica.Spring
 	pulsePos    float64
@@ -69,9 +81,13 @@ type Model struct {
 	sites  []models.Site
 	alerts []models.AlertConfig
 	users  []models.User
+	nodes  []models.ProbeNode
+
+	filterMode bool
+	filterText string
 }
 
-func InitialModel(isAdmin bool) Model {
+func InitialModel(isAdmin bool, s store.Store, eng *monitor.Engine) Model {
 	vpLogs := viewport.New(100, 20)
 	vpLogs.SetContent("Waiting for logs...")
 	z := zone.New()
@@ -81,8 +97,11 @@ func InitialModel(isAdmin bool) Model {
 		logViewport:  vpLogs,
 		maxTableRows: 5,
 		isAdmin:      isAdmin,
+		store:        s,
+		engine:       eng,
 		zones:        z,
 		pulseSpring:  spring,
+		collapsed:    make(map[int]bool),
 	}
 }
 
@@ -93,6 +112,45 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
+	if m.state == stateConfirmDelete {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			switch keyMsg.String() {
+			case "y", "Y":
+				switch m.deleteTab {
+				case 0:
+					if err := m.store.DeleteSite(m.deleteID); err != nil {
+						m.engine.AddLog("Delete site failed: " + err.Error())
+					}
+					m.engine.RemoveSite(m.deleteID)
+					m.adjustCursor(len(m.sites) - 1)
+				case 1:
+					if err := m.store.DeleteAlert(m.deleteID); err != nil {
+						m.engine.AddLog("Delete alert failed: " + err.Error())
+					}
+					m.adjustCursor(len(m.alerts) - 1)
+				case 3:
+					if err := m.store.DeleteUser(m.deleteID); err != nil {
+						m.engine.AddLog("Delete user failed: " + err.Error())
+					}
+					m.adjustCursor(len(m.users) - 1)
+				}
+				m.refreshData()
+				m.state = stateDashboard
+				if m.deleteTab == 4 {
+					m.state = stateUsers
+				}
+			case "n", "N", "esc":
+				m.state = stateDashboard
+				if m.deleteTab == 4 {
+					m.state = stateUsers
+				}
+			case "ctrl+c":
+				return m, tea.Quit
+			}
+		}
+		return m, nil
+	}
+
 	// Form state: forward ALL messages to huh (keys, timers, resize, etc.)
 	if m.state == stateFormSite || m.state == stateFormAlert || m.state == stateFormUser {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
@@ -102,7 +160,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if keyMsg.String() == "esc" {
 				m.huhForm = nil
 				m.state = stateDashboard
-				if m.currentTab == 3 {
+				if m.currentTab == 4 {
 					m.state = stateUsers
 				}
 				return m, nil
@@ -126,6 +184,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		m.termWidth = msg.Width
+		m.termHeight = msg.Height
 		m.maxTableRows = msg.Height - 12
 		if m.maxTableRows < 1 {
 			m.maxTableRows = 1
@@ -159,6 +219,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.currentTab == 1 {
 					listLen = len(m.alerts)
 				} else if m.currentTab == 3 {
+					listLen = len(m.nodes)
+				} else if m.currentTab == 4 {
 					listLen = len(m.users)
 				}
 				if msg.Button == tea.MouseButtonWheelUp {
@@ -188,11 +250,54 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.ClearScreen
 		}
 
+		if m.filterMode {
+			switch msg.String() {
+			case "esc":
+				m.filterMode = false
+				m.filterText = ""
+				m.cursor = 0
+				m.tableOffset = 0
+				m.refreshData()
+			case "enter":
+				m.filterMode = false
+			case "backspace":
+				if len(m.filterText) > 0 {
+					m.filterText = m.filterText[:len(m.filterText)-1]
+					m.cursor = 0
+					m.tableOffset = 0
+					m.refreshData()
+				}
+			case "ctrl+c":
+				return m, tea.Quit
+			default:
+				if len(msg.String()) == 1 {
+					m.filterText += msg.String()
+					m.cursor = 0
+					m.tableOffset = 0
+					m.refreshData()
+				}
+			}
+			return m, nil
+		}
+
 		switch m.state {
+		case stateDetail:
+			switch msg.String() {
+			case "i", "esc":
+				m.state = stateDashboard
+			case "q":
+				return m, tea.Quit
+			}
+			return m, nil
 		case stateDashboard, stateLogs, stateUsers:
 			switch msg.String() {
 			case "q":
 				return m, tea.Quit
+			case "/":
+				if m.currentTab == 0 {
+					m.filterMode = true
+					return m, nil
+				}
 			case "tab":
 				m.switchTab(m.currentTab + 1)
 			case "pgup", "pgdown":
@@ -218,6 +323,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						max = len(m.alerts) - 1
 					}
 					if m.currentTab == 3 {
+						max = len(m.nodes) - 1
+					}
+					if m.currentTab == 4 {
 						max = len(m.users) - 1
 					}
 					if m.cursor < max {
@@ -236,7 +344,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if m.currentTab == 1 {
 					m.state = stateFormAlert
 					return m, m.initAlertHuhForm()
-				} else if m.currentTab == 3 && m.isAdmin {
+				} else if m.currentTab == 4 && m.isAdmin {
 					m.state = stateFormUser
 					return m, m.initUserHuhForm()
 				}
@@ -250,25 +358,46 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.editID = m.alerts[m.cursor].ID
 					m.state = stateFormAlert
 					return m, m.initAlertHuhForm()
-				} else if m.currentTab == 3 && m.isAdmin && len(m.users) > 0 {
+				} else if m.currentTab == 4 && m.isAdmin && len(m.users) > 0 {
 					m.editID = m.users[m.cursor].ID
 					m.state = stateFormUser
 					return m, m.initUserHuhForm()
 				}
-			case "d", "backspace":
-				if m.currentTab == 1 && len(m.alerts) > 0 {
-					store.Get().DeleteAlert(m.alerts[m.cursor].ID)
-					m.adjustCursor(len(m.alerts) - 1)
-				} else if m.currentTab == 0 && len(m.sites) > 0 {
-					id := m.sites[m.cursor].ID
-					store.Get().DeleteSite(id)
-					monitor.RemoveSite(id)
-					m.adjustCursor(len(m.sites) - 1)
-				} else if m.currentTab == 3 && m.isAdmin && len(m.users) > 0 {
-					store.Get().DeleteUser(m.users[m.cursor].ID)
-					m.adjustCursor(len(m.users) - 1)
+			case " ":
+				if m.currentTab == 0 && len(m.sites) > 0 && m.sites[m.cursor].Type == "group" {
+					gid := m.sites[m.cursor].ID
+					m.collapsed[gid] = !m.collapsed[gid]
+					m.refreshData()
 				}
-				m.refreshData()
+			case "p":
+				if m.currentTab == 0 && len(m.sites) > 0 {
+					site := m.sites[m.cursor]
+					m.engine.ToggleSitePause(site.ID)
+					site.Paused = !site.Paused
+					_ = m.store.UpdateSitePaused(site.ID, site.Paused)
+					m.refreshData()
+				}
+			case "i":
+				if m.currentTab == 0 && len(m.sites) > 0 {
+					m.state = stateDetail
+				}
+			case "d", "backspace":
+				if m.currentTab == 0 && len(m.sites) > 0 {
+					m.deleteID = m.sites[m.cursor].ID
+					m.deleteName = m.sites[m.cursor].Name
+					m.deleteTab = 0
+					m.state = stateConfirmDelete
+				} else if m.currentTab == 1 && len(m.alerts) > 0 {
+					m.deleteID = m.alerts[m.cursor].ID
+					m.deleteName = m.alerts[m.cursor].Name
+					m.deleteTab = 1
+					m.state = stateConfirmDelete
+				} else if m.currentTab == 4 && m.isAdmin && len(m.users) > 0 {
+					m.deleteID = m.users[m.cursor].ID
+					m.deleteName = m.users[m.cursor].Username
+					m.deleteTab = 4
+					m.state = stateConfirmDelete
+				}
 			}
 		}
 	}
@@ -276,11 +405,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	maxTabs := 3
-	if !m.isAdmin {
-		maxTabs = 2
+	tabCount := 4
+	if m.isAdmin {
+		tabCount = 5
 	}
-	for i := 0; i <= maxTabs; i++ {
+	for i := 0; i < tabCount; i++ {
 		if m.zones.Get(fmt.Sprintf("tab-%d", i)).InBounds(msg) {
 			m.switchTab(i)
 			return m, nil
@@ -313,7 +442,7 @@ func (m *Model) handleClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if m.currentTab == 3 {
+	if m.currentTab == 4 {
 		end := m.tableOffset + m.maxTableRows
 		if end > len(m.users) {
 			end = len(m.users)
@@ -330,9 +459,9 @@ func (m *Model) handleClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) switchTab(idx int) {
-	maxTabs := 2
+	maxTabs := 3
 	if m.isAdmin {
-		maxTabs = 3
+		maxTabs = 4
 	}
 	if idx > maxTabs {
 		idx = 0
@@ -343,7 +472,7 @@ func (m *Model) switchTab(idx int) {
 	switch idx {
 	case 2:
 		m.state = stateLogs
-	case 3:
+	case 4:
 		m.state = stateUsers
 	default:
 		m.state = stateDashboard
@@ -363,27 +492,78 @@ func (m *Model) adjustCursor(newLen int) {
 }
 
 func (m *Model) refreshData() {
-	monitor.Mutex.RLock()
-	var sites []models.Site
-	for _, s := range monitor.LiveState {
-		sites = append(sites, s)
-	}
-	monitor.Mutex.RUnlock()
-	sort.Slice(sites, func(i, j int) bool { return sites[i].ID < sites[j].ID })
-	m.sites = sites
-	if store.Get() != nil {
-		m.alerts = store.Get().GetAllAlerts()
-		if m.isAdmin {
-			m.users = store.Get().GetAllUsers()
+	allSites := m.engine.GetAllSites()
+
+	var groups, ungrouped []models.Site
+	children := make(map[int][]models.Site)
+	for _, s := range allSites {
+		if s.Type == "group" {
+			groups = append(groups, s)
+		} else if s.ParentID > 0 {
+			children[s.ParentID] = append(children[s.ParentID], s)
+		} else {
+			ungrouped = append(ungrouped, s)
 		}
 	}
-	m.logViewport.SetContent(strings.Join(monitor.GetLogs(), "\n"))
+	sort.Slice(groups, func(i, j int) bool { return groups[i].ID < groups[j].ID })
+	for pid := range children {
+		c := children[pid]
+		sort.Slice(c, func(i, j int) bool { return c[i].ID < c[j].ID })
+		sort.SliceStable(c, func(i, j int) bool { return siteOrder(c[i]) < siteOrder(c[j]) })
+		children[pid] = c
+	}
+	sort.Slice(ungrouped, func(i, j int) bool { return ungrouped[i].ID < ungrouped[j].ID })
+	sort.SliceStable(ungrouped, func(i, j int) bool { return siteOrder(ungrouped[i]) < siteOrder(ungrouped[j]) })
+
+	var ordered []models.Site
+	for _, g := range groups {
+		ordered = append(ordered, g)
+		if !m.collapsed[g.ID] {
+			ordered = append(ordered, children[g.ID]...)
+		}
+	}
+	ordered = append(ordered, ungrouped...)
+	if m.filterText != "" {
+		var filtered []models.Site
+		needle := strings.ToLower(m.filterText)
+		for _, s := range ordered {
+			if strings.Contains(strings.ToLower(s.Name), needle) {
+				filtered = append(filtered, s)
+			}
+		}
+		ordered = filtered
+	}
+	m.sites = ordered
+	if alerts, err := m.store.GetAllAlerts(); err == nil {
+		m.alerts = alerts
+	}
+	if m.isAdmin {
+		if users, err := m.store.GetAllUsers(); err == nil {
+			m.users = users
+		}
+	}
+	if nodes, err := m.store.GetAllNodes(); err == nil {
+		m.nodes = nodes
+	}
+	m.logViewport.SetContent(strings.Join(m.engine.GetLogs(), "\n"))
+
+	listLen := len(m.sites)
+	if m.currentTab == 1 {
+		listLen = len(m.alerts)
+	} else if m.currentTab == 3 {
+		listLen = len(m.nodes)
+	} else if m.currentTab == 4 {
+		listLen = len(m.users)
+	}
+	if listLen > 0 && m.cursor >= listLen {
+		m.cursor = listLen - 1
+	}
+	if m.cursor < m.tableOffset {
+		m.tableOffset = m.cursor
+	}
 }
 
 func (m *Model) submitForm() {
-	if store.Get() == nil {
-		return
-	}
 	switch m.state {
 	case stateFormSite:
 		if m.siteFormData != nil {
@@ -406,12 +586,39 @@ func (m Model) pulseIndicator() string {
 	if brightness > 255 {
 		brightness = 255
 	}
-	color := fmt.Sprintf("#%02x%02x%02x", brightness/3, brightness, brightness/2)
+	hasDown := false
+	for _, s := range m.sites {
+		if !s.Paused && (s.Status == "DOWN" || s.Status == "SSL EXP") {
+			hasDown = true
+			break
+		}
+	}
+	var color string
+	if hasDown {
+		color = fmt.Sprintf("#%02x%02x%02x", brightness, brightness/4, brightness/4)
+	} else {
+		color = fmt.Sprintf("#%02x%02x%02x", brightness/3, brightness, brightness/2)
+	}
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(pulseFrames[frame])
 }
 
 func (m Model) View() string {
 	switch m.state {
+	case stateConfirmDelete:
+		kind := "monitor"
+		if m.deleteTab == 1 {
+			kind = "alert"
+		} else if m.deleteTab == 4 {
+			kind = "user"
+		}
+		msg := dangerStyle.Render(fmt.Sprintf("Delete %s \"%s\"?", kind, m.deleteName))
+		hint := subtleStyle.Render("[y] Confirm  [n] Cancel")
+		box := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#F25D94")).
+			Padding(1, 3).
+			Render(msg + "\n\n" + hint)
+		return lipgloss.NewStyle().Padding(2, 4).Render(box)
 	case stateFormSite, stateFormAlert, stateFormUser:
 		if m.huhForm != nil {
 			title := ""
@@ -437,13 +644,45 @@ func (m Model) View() string {
 			return lipgloss.NewStyle().Padding(1, 2).Render(header + "\n\n" + m.huhForm.View() + "\n" + footer)
 		}
 		return ""
+	case stateDetail:
+		return m.viewDetailPanel()
 	default:
 		return m.zones.Scan(m.viewDashboard())
 	}
 }
 
 func (m Model) viewDashboard() string {
-	tabs := []string{"Sites", "Alerts", "Logs"}
+	downCount := 0
+	for _, s := range m.sites {
+		if !s.Paused && (s.Status == "DOWN" || s.Status == "SSL EXP") {
+			downCount++
+		}
+	}
+	offlineNodes := 0
+	for _, n := range m.nodes {
+		if !n.LastSeen.IsZero() && time.Since(n.LastSeen) > 5*time.Minute {
+			offlineNodes++
+		}
+	}
+
+	var sitesLabel string
+	if downCount > 0 {
+		sitesLabel = fmt.Sprintf("Sites (%d↓)", downCount)
+	} else if len(m.sites) > 0 {
+		sitesLabel = fmt.Sprintf("Sites (%d)", len(m.sites))
+	} else {
+		sitesLabel = "Sites"
+	}
+	var nodesLabel string
+	if offlineNodes > 0 {
+		nodesLabel = fmt.Sprintf("Nodes (%d!)", offlineNodes)
+	} else if len(m.nodes) > 0 {
+		nodesLabel = fmt.Sprintf("Nodes (%d)", len(m.nodes))
+	} else {
+		nodesLabel = "Nodes"
+	}
+
+	tabs := []string{sitesLabel, "Alerts", "Logs", nodesLabel}
 	if m.isAdmin {
 		tabs = append(tabs, "Users")
 	}
@@ -471,16 +710,70 @@ func (m Model) viewDashboard() string {
 	case 2:
 		content = m.viewLogsTab()
 	case 3:
+		content = m.viewNodesTab()
+	case 4:
 		if m.isAdmin {
 			content = m.viewUsersTab()
 		}
 	}
 
-	footer := subtleStyle.Render("\n[n] New  [e/Enter] Edit  [d] Delete  [Tab/Click] Switch  [Ctrl+L] Clear  [q] Quit")
-	if m.currentTab == 3 {
-		footer = subtleStyle.Render("\n[n] Add User  [d] Revoke  [Tab/Click] Switch  [Ctrl+L] Clear  [q] Quit")
+	upCount := len(m.sites) - downCount
+	var upStr string
+	if downCount > 0 {
+		upStr = dangerStyle.Render(fmt.Sprintf("%d/%d UP", upCount, len(m.sites)))
+	} else {
+		upStr = specialStyle.Render(fmt.Sprintf("%d/%d UP", upCount, len(m.sites)))
 	}
-	return lipgloss.NewStyle().Padding(1, 2).Render(header + "\n" + content + "\n" + footer)
+	statusParts := []string{upStr}
+	if len(m.nodes) > 0 {
+		online := 0
+		for _, n := range m.nodes {
+			if !n.LastSeen.IsZero() && time.Since(n.LastSeen) < 60*time.Second {
+				online++
+			}
+		}
+		statusParts = append(statusParts, fmt.Sprintf("%d probes", online))
+	}
+	statusLine := strings.Join(statusParts, subtleStyle.Render(" · "))
+
+	var footer string
+	if m.filterMode {
+		cursor := lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Render("│")
+		footer = "\n" + titleStyle.Render("/") + " " + m.filterText + cursor + "  " + subtleStyle.Render("[Enter]Apply [Esc]Clear")
+	} else {
+		var keys string
+		switch m.currentTab {
+		case 0:
+			keys = "[/]Filter [n]New [e]Edit [i]Info [d]Del [p]Pause [Tab]Switch [q]Quit"
+		case 4:
+			keys = "[n]Add [d]Revoke [Tab]Switch [q]Quit"
+		default:
+			keys = "[Tab]Switch [q]Quit"
+		}
+		footer = "\n" + statusLine + "  " + subtleStyle.Render(keys)
+		if m.filterText != "" && m.currentTab == 0 {
+			footer = "\n" + subtleStyle.Render(fmt.Sprintf("filter: %s", m.filterText)) + "  " + statusLine + "  " + subtleStyle.Render(keys)
+		}
+	}
+	s := lipgloss.NewStyle().Padding(1, 2)
+	if m.termHeight > 0 {
+		s = s.MaxHeight(m.termHeight)
+	}
+	return s.Render(header + "\n" + content + "\n" + footer)
+}
+
+func siteOrder(s models.Site) int {
+	if s.Paused {
+		return 3
+	}
+	switch s.Status {
+	case "DOWN", "SSL EXP":
+		return 0
+	case "PENDING":
+		return 2
+	default:
+		return 1
+	}
 }
 
 func limitStr(text string, max int) string {

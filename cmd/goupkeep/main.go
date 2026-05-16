@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"go-upkeep/internal/cluster"
+	"go-upkeep/internal/config"
 	"go-upkeep/internal/importer"
 	"go-upkeep/internal/models"
 	"go-upkeep/internal/monitor"
@@ -26,6 +28,102 @@ import (
 func main() {
 	log.SetOutput(os.Stderr)
 
+	if len(os.Args) >= 2 {
+		switch os.Args[1] {
+		case "apply":
+			runApply(os.Args[2:])
+			return
+		case "export":
+			runExport(os.Args[2:])
+			return
+		}
+	}
+	runServe(os.Args[1:])
+}
+
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func openStore(dbType, dsn string) store.Store {
+	var s store.Store
+	var err error
+	if dbType == "postgres" {
+		s, err = store.NewPostgresStore(dsn)
+	} else {
+		s, err = store.NewSQLiteStore(dsn)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "database error: %v\n", err)
+		os.Exit(1)
+	}
+	if err := s.Init(); err != nil {
+		fmt.Fprintf(os.Stderr, "database init error: %v\n", err)
+		os.Exit(1)
+	}
+	return s
+}
+
+func runApply(args []string) {
+	fs := flag.NewFlagSet("apply", flag.ExitOnError)
+	filePath := fs.String("f", "", "Path to YAML config file (required)")
+	dryRun := fs.Bool("dry-run", false, "Show planned changes without applying")
+	prune := fs.Bool("prune", false, "Delete monitors/alerts not in YAML")
+	dbType := fs.String("db-type", envOrDefault("UPKEEP_DB_TYPE", "sqlite"), "Database type")
+	dsn := fs.String("dsn", envOrDefault("UPKEEP_DB_DSN", "upkeep.db"), "Database DSN")
+	fs.Parse(args)
+
+	if *filePath == "" {
+		fmt.Fprintln(os.Stderr, "error: -f flag is required")
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	s := openStore(*dbType, *dsn)
+
+	f, err := config.LoadFile(*filePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	changes, err := config.Apply(s, f, config.ApplyOpts{
+		DryRun: *dryRun,
+		Prune:  *prune,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Print(config.FormatChanges(changes, *dryRun))
+}
+
+func runExport(args []string) {
+	fs := flag.NewFlagSet("export", flag.ExitOnError)
+	outPath := fs.String("o", "-", "Output file path (- for stdout)")
+	dbType := fs.String("db-type", envOrDefault("UPKEEP_DB_TYPE", "sqlite"), "Database type")
+	dsn := fs.String("dsn", envOrDefault("UPKEEP_DB_DSN", "upkeep.db"), "Database DSN")
+	fs.Parse(args)
+
+	s := openStore(*dbType, *dsn)
+
+	f, err := config.Export(s)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := config.WriteFile(f, *outPath); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runServe(args []string) {
 	portVal := 23234
 	dbType := "sqlite"
 	dbDSN := "upkeep.db"
@@ -58,7 +156,6 @@ func main() {
 	if v := os.Getenv("UPKEEP_STATUS_TITLE"); v != "" {
 		statusTitle = v
 	}
-
 	if v := os.Getenv("UPKEEP_CLUSTER_MODE"); v != "" {
 		clusterMode = v
 	}
@@ -68,32 +165,71 @@ func main() {
 	if v := os.Getenv("UPKEEP_CLUSTER_SECRET"); v != "" {
 		clusterKey = v
 	}
-	if os.Getenv("UPKEEP_INSECURE_SKIP_VERIFY") == "true" {
-		monitor.SetInsecureSkipVerify(true)
+
+	nodeID := os.Getenv("UPKEEP_NODE_ID")
+	nodeName := os.Getenv("UPKEEP_NODE_NAME")
+	nodeRegion := os.Getenv("UPKEEP_NODE_REGION")
+	aggStrategy := os.Getenv("UPKEEP_AGG_STRATEGY")
+
+	if clusterMode == "probe" {
+		if nodeID == "" {
+			fmt.Fprintln(os.Stderr, "UPKEEP_NODE_ID is required for probe mode")
+			os.Exit(1)
+		}
+		if clusterPeer == "" {
+			fmt.Fprintln(os.Stderr, "UPKEEP_PEER_URL is required for probe mode")
+			os.Exit(1)
+		}
+
+		fmt.Printf("Cluster: Running as PROBE (node=%s, region=%s)\n", nodeID, nodeRegion)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan os.Signal, 1)
+		signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-done
+			cancel()
+		}()
+
+		if err := cluster.RunProbe(ctx, cluster.ProbeConfig{
+			NodeID:    nodeID,
+			NodeName:  nodeName,
+			Region:    nodeRegion,
+			LeaderURL: clusterPeer,
+			SharedKey: clusterKey,
+			Interval:  30,
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "Probe error: %v\n", err)
+		}
+		return
 	}
 
-	port := flag.Int("port", portVal, "SSH Port")
-	flagDBType := flag.String("db-type", dbType, "Database type")
-	flagDSN := flag.String("dsn", dbDSN, "Database DSN")
-	demo := flag.Bool("demo", false, "Seed demo data")
-	importKuma := flag.String("import-kuma", "", "Import Uptime Kuma backup JSON file")
-	flag.Parse()
+	fs := flag.NewFlagSet("serve", flag.ExitOnError)
+	port := fs.Int("port", portVal, "SSH Port")
+	flagDBType := fs.String("db-type", dbType, "Database type")
+	flagDSN := fs.String("dsn", dbDSN, "Database DSN")
+	demo := fs.Bool("demo", false, "Seed demo data")
+	importKuma := fs.String("import-kuma", "", "Import Uptime Kuma backup JSON file")
+	fs.Parse(args)
 
 	var s store.Store
+	var dbErr error
 	if *flagDBType == "postgres" {
-		s = &store.PostgresStore{ConnStr: *flagDSN}
+		s, dbErr = store.NewPostgresStore(*flagDSN)
 		fmt.Printf("Using PostgreSQL: %s\n", *flagDSN)
 	} else {
-		s = &store.SQLiteStore{DBPath: *flagDSN}
+		s, dbErr = store.NewSQLiteStore(*flagDSN)
 		fmt.Printf("Using SQLite: %s\n", *flagDSN)
+	}
+	if dbErr != nil {
+		fmt.Printf("Database connection error: %v\n", dbErr)
+		os.Exit(1)
 	}
 
 	if err := s.Init(); err != nil {
-		fmt.Printf("Database Init Error: %v\n", err)
+		fmt.Printf("Database init error: %v\n", err)
 		os.Exit(1)
 	}
-	store.SetGlobal(s)
-
 	if *demo {
 		seedDemoData(s)
 	}
@@ -112,25 +248,38 @@ func main() {
 		fmt.Printf("Imported %d monitors and %d alerts from Uptime Kuma v%s\n", len(backup.Sites), len(backup.Alerts), kb.Version)
 	}
 
-	monitor.StartEngine()
+	eng := monitor.NewEngine(s)
+	if os.Getenv("UPKEEP_INSECURE_SKIP_VERIFY") == "true" {
+		eng.SetInsecureSkipVerify(true)
+	}
+	if aggStrategy != "" {
+		eng.SetAggStrategy(monitor.AggregationStrategy(aggStrategy))
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	eng.InitHistory()
+	eng.InitLogs()
+	eng.Start(ctx)
 
 	server.Start(server.ServerConfig{
 		Port:         httpPort,
 		EnableStatus: enableStatus,
 		Title:        statusTitle,
 		ClusterKey:   clusterKey,
-	})
+	}, s, eng)
 
-	cluster.Start(cluster.Config{
+	cluster.Start(ctx, cluster.Config{
 		Mode:      clusterMode,
 		PeerURL:   clusterPeer,
 		SharedKey: clusterKey,
-	})
+	}, eng)
 
-	startSSHServer(*port)
+	startSSHServer(*port, s, eng)
 
 	if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
-		p := tea.NewProgram(tui.InitialModel(true), tea.WithAltScreen(), tea.WithMouseCellMotion())
+		p := tea.NewProgram(tui.InitialModel(true, s, eng), tea.WithAltScreen(), tea.WithMouseCellMotion())
 		if _, err := p.Run(); err != nil {
 			fmt.Printf("Error: %v\n", err)
 		}
@@ -141,18 +290,19 @@ func main() {
 		<-done
 		fmt.Println("Shutting down...")
 	}
+	cancel()
 }
 
-func startSSHServer(port int) {
+func startSSHServer(port int, db store.Store, eng *monitor.Engine) {
 	s, err := wish.NewServer(
 		wish.WithAddress(fmt.Sprintf(":%d", port)),
 		wish.WithHostKeyPath(".ssh/id_ed25519"),
 		wish.WithPublicKeyAuth(func(ctx ssh.Context, key ssh.PublicKey) bool {
-			return isKeyAllowed(key)
+			return isKeyAllowed(db, key)
 		}),
 		wish.WithMiddleware(
 			bm.Middleware(func(s ssh.Session) (tea.Model, []tea.ProgramOption) {
-				return tui.InitialModel(false), []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion()}
+				return tui.InitialModel(false, db, eng), []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion()}
 			}),
 		),
 	)
@@ -160,11 +310,16 @@ func startSSHServer(port int) {
 		fmt.Printf("SSH server error: %v\n", err)
 		return
 	}
-	go func() { s.ListenAndServe() }()
+	go func() {
+		if err := s.ListenAndServe(); err != nil {
+			log.Fatalf("SSH server failed: %v", err)
+		}
+	}()
 }
 
 func seedDemoData(s store.Store) {
-	if existing := s.GetSites(); len(existing) > 0 {
+	existing, _ := s.GetSites()
+	if len(existing) > 0 {
 		return
 	}
 	fmt.Println("Seeding demo data...")
@@ -177,7 +332,7 @@ func seedDemoData(s store.Store) {
 		"from": "oncall@example.com", "to": "team@example.com",
 	})
 
-	alerts := s.GetAllAlerts()
+	alerts, _ := s.GetAllAlerts()
 	alertID := 0
 	if len(alerts) > 0 {
 		alertID = alerts[0].ID
@@ -195,8 +350,11 @@ func seedDemoData(s store.Store) {
 	s.AddSite(models.Site{Name: "SSH Server", Type: "port", Interval: 60, AlertID: alertID, Hostname: "10.0.0.1", Port: 22, Timeout: 5, ExpiryThreshold: 7})
 }
 
-func isKeyAllowed(incomingKey ssh.PublicKey) bool {
-	users := store.Get().GetAllUsers()
+func isKeyAllowed(db store.Store, incomingKey ssh.PublicKey) bool {
+	users, err := db.GetAllUsers()
+	if err != nil {
+		return false
+	}
 	for _, u := range users {
 		allowedKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(u.PublicKey))
 		if err != nil {

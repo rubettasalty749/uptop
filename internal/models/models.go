@@ -24,6 +24,8 @@ type Site struct {
 	DNSResolveType string
 	DNSServer      string
 	IgnoreTLS      bool
+	Paused         bool
+	Regions        string
 
 	FailureCount   int
 	Status         string
@@ -49,7 +51,22 @@ type User struct {
 	Role      string
 }
 
-// Phase 5: Backup Structure
+type CheckRecord struct {
+	SiteID    int
+	NodeID    string
+	LatencyNs int64
+	IsUp      bool
+	CheckedAt time.Time
+}
+
+type ProbeNode struct {
+	ID       string
+	Name     string
+	Region   string
+	LastSeen time.Time
+	Version  string
+}
+
 type Backup struct {
 	Sites  []Site        `json:"sites"`
 	Alerts []AlertConfig `json:"alerts"`

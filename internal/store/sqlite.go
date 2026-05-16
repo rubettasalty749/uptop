@@ -1,68 +1,66 @@
 package store
 
 import (
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
-	"encoding/json"
-	"go-upkeep/internal/models"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
-type SQLiteStore struct {
-	DBPath string
-	db     *sql.DB
+type SQLiteDialect struct{}
+
+func NewSQLiteStore(path string) (*SQLStore, error) {
+	return NewSQLStore("sqlite3", path, &SQLiteDialect{})
 }
 
-func (s *SQLiteStore) Init() error {
-	var err error
-	s.db, err = sql.Open("sqlite3", s.DBPath)
-	if err != nil {
-		return err
-	}
+func (d *SQLiteDialect) DriverName() string { return "sqlite3" }
+func (d *SQLiteDialect) BoolFalse() string  { return "0" }
 
-	createTables := `
-	CREATE TABLE IF NOT EXISTS alerts (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT,
-		type TEXT,
-		settings TEXT
-	);
-	CREATE TABLE IF NOT EXISTS sites (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT DEFAULT 'New Monitor',
-		url TEXT,
-		type TEXT DEFAULT 'http',
-		token TEXT,
-		interval INTEGER,
-		alert_id INTEGER,
-		check_ssl BOOLEAN DEFAULT 0,
-		threshold INTEGER DEFAULT 7,
-		max_retries INTEGER DEFAULT 0,
-		hostname TEXT DEFAULT '',
-		port INTEGER DEFAULT 0,
-		timeout INTEGER DEFAULT 0,
-		method TEXT DEFAULT 'GET',
-		description TEXT DEFAULT '',
-		parent_id INTEGER DEFAULT 0,
-		accepted_codes TEXT DEFAULT '200-299',
-		dns_resolve_type TEXT DEFAULT '',
-		dns_server TEXT DEFAULT '',
-		ignore_tls BOOLEAN DEFAULT 0
-	);
-	CREATE TABLE IF NOT EXISTS users (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		username TEXT NOT NULL,
-		public_key TEXT NOT NULL,
-		role TEXT DEFAULT 'user'
-	);`
-	_, err = s.db.Exec(createTables)
-	if err != nil {
-		return err
+func (d *SQLiteDialect) CreateTablesSQL() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS alerts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT, type TEXT, settings TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS sites (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT DEFAULT 'New Monitor', url TEXT, type TEXT DEFAULT 'http',
+			token TEXT, interval INTEGER, alert_id INTEGER,
+			check_ssl BOOLEAN DEFAULT 0, threshold INTEGER DEFAULT 7,
+			max_retries INTEGER DEFAULT 0, hostname TEXT DEFAULT '',
+			port INTEGER DEFAULT 0, timeout INTEGER DEFAULT 0,
+			method TEXT DEFAULT 'GET', description TEXT DEFAULT '',
+			parent_id INTEGER DEFAULT 0, accepted_codes TEXT DEFAULT '200-299',
+			dns_resolve_type TEXT DEFAULT '', dns_server TEXT DEFAULT '',
+			ignore_tls BOOLEAN DEFAULT 0, paused BOOLEAN DEFAULT 0
+		)`,
+		`CREATE TABLE IF NOT EXISTS users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			username TEXT NOT NULL, public_key TEXT NOT NULL,
+			role TEXT DEFAULT 'user'
+		)`,
+		`CREATE TABLE IF NOT EXISTS check_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			site_id INTEGER NOT NULL, latency_ns INTEGER,
+			is_up BOOLEAN, checked_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_check_history_site ON check_history(site_id, checked_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS nodes (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			region TEXT DEFAULT '',
+			last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+			version TEXT DEFAULT ''
+		)`,
+		`CREATE TABLE IF NOT EXISTS logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			message TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 	}
+}
 
-	migrations := []string{
+func (d *SQLiteDialect) MigrationsSQL() []string {
+	return []string{
 		"ALTER TABLE sites ADD COLUMN hostname TEXT DEFAULT ''",
 		"ALTER TABLE sites ADD COLUMN port INTEGER DEFAULT 0",
 		"ALTER TABLE sites ADD COLUMN timeout INTEGER DEFAULT 0",
@@ -73,169 +71,31 @@ func (s *SQLiteStore) Init() error {
 		"ALTER TABLE sites ADD COLUMN dns_resolve_type TEXT DEFAULT ''",
 		"ALTER TABLE sites ADD COLUMN dns_server TEXT DEFAULT ''",
 		"ALTER TABLE sites ADD COLUMN ignore_tls BOOLEAN DEFAULT 0",
+		"ALTER TABLE sites ADD COLUMN paused BOOLEAN DEFAULT 0",
+		"ALTER TABLE check_history ADD COLUMN node_id TEXT DEFAULT ''",
+		"ALTER TABLE sites ADD COLUMN regions TEXT DEFAULT ''",
 	}
-	for _, m := range migrations {
-		s.db.Exec(m)
-	}
-
-	return nil
 }
 
-func generateToken() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand failed: " + err.Error())
-	}
-	return hex.EncodeToString(b)
+func (d *SQLiteDialect) UpsertNodeSQL() string {
+	return "INSERT OR REPLACE INTO nodes (id, name, region, last_seen, version) VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)"
 }
 
-func (s *SQLiteStore) GetSites() []models.Site {
-	rows, err := s.db.Query("SELECT id, COALESCE(name, url), url, COALESCE(type, 'http'), COALESCE(token, ''), interval, alert_id, check_ssl, threshold, max_retries, COALESCE(hostname, ''), COALESCE(port, 0), COALESCE(timeout, 0), COALESCE(method, 'GET'), COALESCE(description, ''), COALESCE(parent_id, 0), COALESCE(accepted_codes, '200-299'), COALESCE(dns_resolve_type, ''), COALESCE(dns_server, ''), COALESCE(ignore_tls, 0) FROM sites")
-	if err != nil {
-		return []models.Site{}
-	}
-	defer rows.Close()
-	var sites []models.Site
-	for rows.Next() {
-		var st models.Site
-		rows.Scan(&st.ID, &st.Name, &st.URL, &st.Type, &st.Token, &st.Interval, &st.AlertID, &st.CheckSSL, &st.ExpiryThreshold, &st.MaxRetries, &st.Hostname, &st.Port, &st.Timeout, &st.Method, &st.Description, &st.ParentID, &st.AcceptedCodes, &st.DNSResolveType, &st.DNSServer, &st.IgnoreTLS)
-		sites = append(sites, st)
-	}
-	return sites
-}
-func (s *SQLiteStore) AddSite(site models.Site) {
-	token := ""
-	if site.Type == "push" {
-		token = generateToken()
-	}
-	s.db.Exec("INSERT INTO sites (name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries, hostname, port, timeout, method, description, parent_id, accepted_codes, dns_resolve_type, dns_server, ignore_tls) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		site.Name, site.URL, site.Type, token, site.Interval, site.AlertID, site.CheckSSL, site.ExpiryThreshold, site.MaxRetries,
-		site.Hostname, site.Port, site.Timeout, site.Method, site.Description, site.ParentID, site.AcceptedCodes, site.DNSResolveType, site.DNSServer, site.IgnoreTLS)
-}
-func (s *SQLiteStore) UpdateSite(site models.Site) {
-	var existingToken string
-	s.db.QueryRow("SELECT token FROM sites WHERE id=?", site.ID).Scan(&existingToken)
-	if site.Type == "push" && existingToken == "" {
-		existingToken = generateToken()
-	}
-	s.db.Exec("UPDATE sites SET name=?, url=?, type=?, token=?, interval=?, alert_id=?, check_ssl=?, threshold=?, max_retries=?, hostname=?, port=?, timeout=?, method=?, description=?, parent_id=?, accepted_codes=?, dns_resolve_type=?, dns_server=?, ignore_tls=? WHERE id=?",
-		site.Name, site.URL, site.Type, existingToken, site.Interval, site.AlertID, site.CheckSSL, site.ExpiryThreshold, site.MaxRetries,
-		site.Hostname, site.Port, site.Timeout, site.Method, site.Description, site.ParentID, site.AcceptedCodes, site.DNSResolveType, site.DNSServer, site.IgnoreTLS, site.ID)
-}
-func (s *SQLiteStore) DeleteSite(id int) {
-	s.db.Exec("DELETE FROM sites WHERE id=?", id)
+func (d *SQLiteDialect) ResetSequenceOnEmpty(db *sql.DB, table string) {
 	var count int
-	s.db.QueryRow("SELECT COUNT(*) FROM sites").Scan(&count)
+	db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count)
 	if count == 0 {
-		s.db.Exec("DELETE FROM sqlite_sequence WHERE name='sites'")
-	}
-}
-func (s *SQLiteStore) GetAllAlerts() []models.AlertConfig {
-	rows, err := s.db.Query("SELECT id, name, type, settings FROM alerts")
-	if err != nil {
-		return []models.AlertConfig{}
-	}
-	defer rows.Close()
-	var alerts []models.AlertConfig
-	for rows.Next() {
-		var a models.AlertConfig
-		var settingsJSON string
-		rows.Scan(&a.ID, &a.Name, &a.Type, &settingsJSON)
-		json.Unmarshal([]byte(settingsJSON), &a.Settings)
-		alerts = append(alerts, a)
-	}
-	return alerts
-}
-func (s *SQLiteStore) GetAlert(id int) (models.AlertConfig, bool) {
-	var a models.AlertConfig
-	var settingsJSON string
-	err := s.db.QueryRow("SELECT id, name, type, settings FROM alerts WHERE id = ?", id).Scan(&a.ID, &a.Name, &a.Type, &settingsJSON)
-	if err != nil {
-		return a, false
-	}
-	json.Unmarshal([]byte(settingsJSON), &a.Settings)
-	return a, true
-}
-func (s *SQLiteStore) AddAlert(name, aType string, settings map[string]string) {
-	jsonBytes, _ := json.Marshal(settings)
-	s.db.Exec("INSERT INTO alerts (name, type, settings) VALUES (?, ?, ?)", name, aType, string(jsonBytes))
-}
-func (s *SQLiteStore) UpdateAlert(id int, name, aType string, settings map[string]string) {
-	jsonBytes, _ := json.Marshal(settings)
-	s.db.Exec("UPDATE alerts SET name=?, type=?, settings=? WHERE id=?", name, aType, string(jsonBytes), id)
-}
-func (s *SQLiteStore) DeleteAlert(id int) {
-	s.db.Exec("DELETE FROM alerts WHERE id=?", id)
-	var count int
-	s.db.QueryRow("SELECT COUNT(*) FROM alerts").Scan(&count)
-	if count == 0 {
-		s.db.Exec("DELETE FROM sqlite_sequence WHERE name='alerts'")
-	}
-}
-func (s *SQLiteStore) GetAllUsers() []models.User {
-	rows, err := s.db.Query("SELECT id, username, public_key, role FROM users")
-	if err != nil {
-		return []models.User{}
-	}
-	defer rows.Close()
-	var users []models.User
-	for rows.Next() {
-		var u models.User
-		rows.Scan(&u.ID, &u.Username, &u.PublicKey, &u.Role)
-		users = append(users, u)
-	}
-	return users
-}
-func (s *SQLiteStore) AddUser(username, publicKey, role string) error {
-	_, err := s.db.Exec("INSERT INTO users (username, public_key, role) VALUES (?, ?, ?)", username, publicKey, role)
-	return err
-}
-func (s *SQLiteStore) UpdateUser(id int, username, publicKey, role string) error {
-	_, err := s.db.Exec("UPDATE users SET username=?, public_key=?, role=? WHERE id=?", username, publicKey, role, id)
-	return err
-}
-func (s *SQLiteStore) DeleteUser(id int) error {
-	_, err := s.db.Exec("DELETE FROM users WHERE id=?", id)
-	return err
-}
-
-// --- PHASE 5 ---
-
-func (s *SQLiteStore) ExportData() models.Backup {
-	return models.Backup{
-		Sites:  s.GetSites(),
-		Alerts: s.GetAllAlerts(),
-		Users:  s.GetAllUsers(),
+		db.Exec("DELETE FROM sqlite_sequence WHERE name=?", table)
 	}
 }
 
-func (s *SQLiteStore) ImportData(data models.Backup) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-
-	// Wipe Existing
+func (d *SQLiteDialect) ImportWipe(tx *sql.Tx) {
 	tx.Exec("DELETE FROM sites")
 	tx.Exec("DELETE FROM sqlite_sequence WHERE name='sites'")
 	tx.Exec("DELETE FROM alerts")
 	tx.Exec("DELETE FROM sqlite_sequence WHERE name='alerts'")
 	tx.Exec("DELETE FROM users")
 	tx.Exec("DELETE FROM sqlite_sequence WHERE name='users'")
-
-	// Insert New
-	for _, u := range data.Users {
-		tx.Exec("INSERT INTO users (username, public_key, role) VALUES (?, ?, ?)", u.Username, u.PublicKey, u.Role)
-	}
-	for _, a := range data.Alerts {
-		jsonBytes, _ := json.Marshal(a.Settings)
-		tx.Exec("INSERT INTO alerts (id, name, type, settings) VALUES (?, ?, ?, ?)", a.ID, a.Name, a.Type, string(jsonBytes))
-	}
-	for _, st := range data.Sites {
-		tx.Exec("INSERT INTO sites (id, name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries, hostname, port, timeout, method, description, parent_id, accepted_codes, dns_resolve_type, dns_server, ignore_tls) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			st.ID, st.Name, st.URL, st.Type, st.Token, st.Interval, st.AlertID, st.CheckSSL, st.ExpiryThreshold, st.MaxRetries,
-			st.Hostname, st.Port, st.Timeout, st.Method, st.Description, st.ParentID, st.AcceptedCodes, st.DNSResolveType, st.DNSServer, st.IgnoreTLS)
-	}
-
-	return tx.Commit()
 }
+
+func (d *SQLiteDialect) ImportResetSequences(tx *sql.Tx) {}

@@ -2,32 +2,10 @@ package tui
 
 import (
 	"fmt"
-	"go-upkeep/internal/store"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/lipgloss/table"
-)
-
-var (
-	alertHeaderStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#7D56F4")).
-				Bold(true).
-				Padding(0, 1)
-
-	alertCellStyle = lipgloss.NewStyle().Padding(0, 1)
-
-	alertSelectedStyle = lipgloss.NewStyle().
-				Padding(0, 1).
-				Bold(true).
-				Foreground(lipgloss.Color("#ffffff")).
-				Background(lipgloss.Color("#3b3b5c"))
-
-	alertBorderStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#444"))
-
-	alertColWidths = []int{4, 16, 10, 36}
 )
 
 type alertFormData struct {
@@ -45,6 +23,19 @@ type alertFormData struct {
 	NtfyUser   string
 	NtfyPass   string
 	NtfyPri    string
+	// Telegram
+	TelegramToken  string
+	TelegramChatID string
+	// PagerDuty
+	PagerDutyKey      string
+	PagerDutySeverity string
+	// Pushover
+	PushoverToken string
+	PushoverUser  string
+	// Gotify
+	GotifyURL      string
+	GotifyToken    string
+	GotifyPriority string
 }
 
 func fmtAlertType(t string) string {
@@ -59,6 +50,14 @@ func fmtAlertType(t string) string {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#73F59F")).Render(t)
 	case "ntfy":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B")).Render(t)
+	case "telegram":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#26A5E4")).Render(t)
+	case "pagerduty":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#06AC38")).Render(t)
+	case "pushover":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#249DF1")).Render(t)
+	case "gotify":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#3F8BBA")).Render(t)
 	default:
 		return t
 	}
@@ -86,6 +85,26 @@ func fmtAlertConfig(alert struct {
 			return limitStr(fmt.Sprintf("%s/%s", url, topic), 34)
 		}
 		return subtleStyle.Render("—")
+	case "telegram":
+		if id := alert.Settings["chat_id"]; id != "" {
+			return limitStr(fmt.Sprintf("chat:%s", id), 34)
+		}
+		return subtleStyle.Render("—")
+	case "pagerduty":
+		if key := alert.Settings["routing_key"]; key != "" {
+			return limitStr(key, 34)
+		}
+		return subtleStyle.Render("—")
+	case "pushover":
+		if user := alert.Settings["user"]; user != "" {
+			return limitStr(fmt.Sprintf("user:%s", user), 34)
+		}
+		return subtleStyle.Render("—")
+	case "gotify":
+		if url := alert.Settings["url"]; url != "" {
+			return limitStr(url, 34)
+		}
+		return subtleStyle.Render("—")
 	default:
 		if val, ok := alert.Settings["url"]; ok {
 			return limitStr(val, 34)
@@ -99,57 +118,35 @@ func (m Model) viewAlertsTab() string {
 		return "\n  No alert channels configured. Press [n] to add one."
 	}
 
-	end := m.tableOffset + m.maxTableRows
-	if end > len(m.alerts) {
-		end = len(m.alerts)
-	}
-
-	selectedVisual := m.cursor - m.tableOffset
-
-	var rows [][]string
-	for i := m.tableOffset; i < end; i++ {
-		alert := m.alerts[i]
-		rows = append(rows, []string{
-			fmt.Sprintf("%d", alert.ID),
-			m.zones.Mark(fmt.Sprintf("alert-%d", i), limitStr(alert.Name, 15)),
-			fmtAlertType(alert.Type),
-			fmtAlertConfig(struct {
-				Type     string
-				Settings map[string]string
-			}{alert.Type, alert.Settings}),
-		})
-	}
-
-	t := table.New().
-		Border(lipgloss.RoundedBorder()).
-		BorderStyle(alertBorderStyle).
-		Headers("ID", "NAME", "TYPE", "CONFIG").
-		Rows(rows...).
-		StyleFunc(func(row, col int) lipgloss.Style {
-			if row == table.HeaderRow {
-				s := alertHeaderStyle
-				if col < len(alertColWidths) {
-					s = s.Width(alertColWidths[col])
-				}
-				return s
+	return m.renderTable(
+		[]string{"#", "NAME", "TYPE", "CONFIG"},
+		len(m.alerts),
+		func(start, end int) [][]string {
+			var rows [][]string
+			for i := start; i < end; i++ {
+				a := m.alerts[i]
+				rows = append(rows, []string{
+					fmt.Sprintf("%d", i+1),
+					m.zones.Mark(fmt.Sprintf("alert-%d", i), limitStr(a.Name, 15)),
+					fmtAlertType(a.Type),
+					fmtAlertConfig(struct {
+						Type     string
+						Settings map[string]string
+					}{a.Type, a.Settings}),
+				})
 			}
-			s := alertCellStyle
-			if row == selectedVisual {
-				s = alertSelectedStyle
-			}
-			if col < len(alertColWidths) {
-				s = s.Width(alertColWidths[col])
-			}
-			return s
-		})
-
-	return "\n" + t.Render()
+			return rows
+		},
+		nil, nil,
+	)
 }
 
 func (m *Model) initAlertHuhForm() tea.Cmd {
 	m.alertFormData = &alertFormData{
-		AlertType: "discord",
-		NtfyPri:   "3",
+		AlertType:         "discord",
+		NtfyPri:           "3",
+		PagerDutySeverity: "critical",
+		GotifyPriority:    "5",
 	}
 
 	if m.editID > 0 {
@@ -174,6 +171,19 @@ func (m *Model) initAlertHuhForm() tea.Cmd {
 					m.alertFormData.NtfyUser = alert.Settings["username"]
 					m.alertFormData.NtfyPass = alert.Settings["password"]
 					m.alertFormData.NtfyPri = alert.Settings["priority"]
+				case "telegram":
+					m.alertFormData.TelegramToken = alert.Settings["token"]
+					m.alertFormData.TelegramChatID = alert.Settings["chat_id"]
+				case "pagerduty":
+					m.alertFormData.PagerDutyKey = alert.Settings["routing_key"]
+					m.alertFormData.PagerDutySeverity = alert.Settings["severity"]
+				case "pushover":
+					m.alertFormData.PushoverToken = alert.Settings["token"]
+					m.alertFormData.PushoverUser = alert.Settings["user"]
+				case "gotify":
+					m.alertFormData.GotifyURL = alert.Settings["url"]
+					m.alertFormData.GotifyToken = alert.Settings["token"]
+					m.alertFormData.GotifyPriority = alert.Settings["priority"]
 				}
 				break
 			}
@@ -198,6 +208,10 @@ func (m *Model) initAlertHuhForm() tea.Cmd {
 					huh.NewOption("Webhook", "webhook"),
 					huh.NewOption("Email (SMTP)", "email"),
 					huh.NewOption("Ntfy", "ntfy"),
+					huh.NewOption("Telegram", "telegram"),
+					huh.NewOption("PagerDuty", "pagerduty"),
+					huh.NewOption("Pushover", "pushover"),
+					huh.NewOption("Gotify", "gotify"),
 				).Value(&m.alertFormData.AlertType),
 		).Title("Alert Config"),
 		huh.NewGroup(
@@ -205,7 +219,8 @@ func (m *Model) initAlertHuhForm() tea.Cmd {
 				Placeholder("https://discord.com/api/webhooks/...").
 				Value(&m.alertFormData.WebhookURL),
 		).Title("Webhook").WithHideFunc(func() bool {
-			return m.alertFormData.AlertType == "email" || m.alertFormData.AlertType == "ntfy"
+			t := m.alertFormData.AlertType
+			return t != "discord" && t != "slack" && t != "webhook"
 		}),
 		huh.NewGroup(
 			huh.NewInput().Title("Ntfy Server URL").
@@ -253,6 +268,57 @@ func (m *Model) initAlertHuhForm() tea.Cmd {
 		).Title("Email Settings").WithHideFunc(func() bool {
 			return m.alertFormData.AlertType != "email"
 		}),
+		huh.NewGroup(
+			huh.NewInput().Title("Bot Token").
+				Placeholder("123456:ABC-DEF1234...").
+				Value(&m.alertFormData.TelegramToken),
+			huh.NewInput().Title("Chat ID").
+				Placeholder("-1001234567890").
+				Value(&m.alertFormData.TelegramChatID),
+		).Title("Telegram Settings").WithHideFunc(func() bool {
+			return m.alertFormData.AlertType != "telegram"
+		}),
+		huh.NewGroup(
+			huh.NewInput().Title("Routing Key").
+				Placeholder("your-integration-routing-key").
+				Value(&m.alertFormData.PagerDutyKey),
+			huh.NewSelect[string]().Title("Severity").
+				Options(
+					huh.NewOption("Critical", "critical"),
+					huh.NewOption("Error", "error"),
+					huh.NewOption("Warning", "warning"),
+					huh.NewOption("Info", "info"),
+				).Value(&m.alertFormData.PagerDutySeverity),
+		).Title("PagerDuty Settings").WithHideFunc(func() bool {
+			return m.alertFormData.AlertType != "pagerduty"
+		}),
+		huh.NewGroup(
+			huh.NewInput().Title("App Token").
+				Placeholder("your-pushover-app-token").
+				Value(&m.alertFormData.PushoverToken),
+			huh.NewInput().Title("User Key").
+				Placeholder("your-pushover-user-key").
+				Value(&m.alertFormData.PushoverUser),
+		).Title("Pushover Settings").WithHideFunc(func() bool {
+			return m.alertFormData.AlertType != "pushover"
+		}),
+		huh.NewGroup(
+			huh.NewInput().Title("Server URL").
+				Placeholder("https://gotify.example.com").
+				Value(&m.alertFormData.GotifyURL),
+			huh.NewInput().Title("App Token").
+				Placeholder("your-gotify-app-token").
+				Value(&m.alertFormData.GotifyToken),
+			huh.NewSelect[string]().Title("Priority").
+				Options(
+					huh.NewOption("Min (0)", "0"),
+					huh.NewOption("Low (2)", "2"),
+					huh.NewOption("Normal (5)", "5"),
+					huh.NewOption("High (8)", "8"),
+				).Value(&m.alertFormData.GotifyPriority),
+		).Title("Gotify Settings").WithHideFunc(func() bool {
+			return m.alertFormData.AlertType != "gotify"
+		}),
 	).WithTheme(huh.ThemeDracula())
 
 	return m.huhForm.Init()
@@ -276,14 +342,31 @@ func (m *Model) submitAlertForm() {
 		settings["priority"] = d.NtfyPri
 		settings["username"] = d.NtfyUser
 		settings["password"] = d.NtfyPass
+	case "telegram":
+		settings["token"] = d.TelegramToken
+		settings["chat_id"] = d.TelegramChatID
+	case "pagerduty":
+		settings["routing_key"] = d.PagerDutyKey
+		settings["severity"] = d.PagerDutySeverity
+	case "pushover":
+		settings["token"] = d.PushoverToken
+		settings["user"] = d.PushoverUser
+	case "gotify":
+		settings["url"] = d.GotifyURL
+		settings["token"] = d.GotifyToken
+		settings["priority"] = d.GotifyPriority
 	default:
 		settings["url"] = d.WebhookURL
 	}
 
 	if m.editID > 0 {
-		store.Get().UpdateAlert(m.editID, d.Name, d.AlertType, settings)
+		if err := m.store.UpdateAlert(m.editID, d.Name, d.AlertType, settings); err != nil {
+			m.engine.AddLog("Update alert failed: " + err.Error())
+		}
 	} else {
-		store.Get().AddAlert(d.Name, d.AlertType, settings)
+		if err := m.store.AddAlert(d.Name, d.AlertType, settings); err != nil {
+			m.engine.AddLog("Add alert failed: " + err.Error())
+		}
 	}
 	m.state = stateDashboard
 }

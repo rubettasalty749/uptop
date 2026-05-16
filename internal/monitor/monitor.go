@@ -1,285 +1,367 @@
 package monitor
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"go-upkeep/internal/alert"
 	"go-upkeep/internal/models"
 	"go-upkeep/internal/store"
-	"net"
 	"net/http"
-	"strconv"
 	"sync"
 	"time"
-
-	"github.com/miekg/dns"
-	probing "github.com/prometheus-community/pro-bing"
 )
 
-// --- LOGGING ---
-var (
-	LogStore []string
-	LogMutex sync.RWMutex
-)
+type Engine struct {
+	mu        sync.RWMutex
+	liveState map[int]models.Site
 
-func AddLog(msg string) {
-	LogMutex.Lock()
-	defer LogMutex.Unlock()
-	ts := time.Now().Format("15:04:05")
-	entry := fmt.Sprintf("[%s] %s", ts, msg)
-	LogStore = append([]string{entry}, LogStore...)
-	if len(LogStore) > 100 {
-		LogStore = LogStore[:100]
+	logMu    sync.RWMutex
+	logStore []string
+
+	activeMu sync.RWMutex
+	isActive bool
+
+	histMu    sync.RWMutex
+	histories map[int]*SiteHistory
+
+	tokenIndex map[string]int
+
+	probeResultsMu sync.RWMutex
+	probeResults   map[int]map[string]NodeResult
+	aggStrategy    AggregationStrategy
+
+	db                 store.Store
+	insecureSkipVerify bool
+	strictClient       *http.Client
+	insecureClient     *http.Client
+}
+
+func NewEngine(s store.Store) *Engine {
+	return &Engine{
+		liveState:    make(map[int]models.Site),
+		histories:    make(map[int]*SiteHistory),
+		tokenIndex:   make(map[string]int),
+		probeResults: make(map[int]map[string]NodeResult),
+		aggStrategy:  AggAnyDown,
+		isActive:     true,
+		db:           s,
+		strictClient: &http.Client{
+			Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: false}},
+		},
+		insecureClient: &http.Client{
+			Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+		},
 	}
 }
 
-func GetLogs() []string {
-	LogMutex.RLock()
-	defer LogMutex.RUnlock()
-	logs := make([]string, len(LogStore))
-	copy(logs, LogStore)
+func (e *Engine) SetInsecureSkipVerify(skip bool) {
+	e.insecureSkipVerify = skip
+}
+
+func (e *Engine) AddLog(msg string) {
+	e.logMu.Lock()
+	defer e.logMu.Unlock()
+	ts := time.Now().Format("15:04:05")
+	entry := fmt.Sprintf("[%s] %s", ts, msg)
+	e.logStore = append([]string{entry}, e.logStore...)
+	if len(e.logStore) > 100 {
+		e.logStore = e.logStore[:100]
+	}
+	go func() { _ = e.db.SaveLog(entry) }()
+}
+
+func (e *Engine) InitLogs() {
+	logs, err := e.db.LoadLogs(100)
+	if err != nil {
+		return
+	}
+	if len(logs) == 0 {
+		return
+	}
+	e.logMu.Lock()
+	defer e.logMu.Unlock()
+	e.logStore = logs
+}
+
+func (e *Engine) GetLogs() []string {
+	e.logMu.RLock()
+	defer e.logMu.RUnlock()
+	logs := make([]string, len(e.logStore))
+	copy(logs, e.logStore)
 	return logs
 }
 
-// --- ENGINE ---
-
-var (
-	LiveState = make(map[int]models.Site)
-	Mutex     sync.RWMutex
-
-	// Global Switch for HA
-	isActive    = true
-	activeMutex sync.RWMutex
-
-	insecureSkipVerify bool
-)
-
-func SetInsecureSkipVerify(skip bool) {
-	insecureSkipVerify = skip
-}
-
-func SetEngineActive(active bool) {
-	activeMutex.Lock()
-	defer activeMutex.Unlock()
-	if isActive != active {
-		isActive = active
+func (e *Engine) SetActive(active bool) {
+	e.activeMu.Lock()
+	defer e.activeMu.Unlock()
+	if e.isActive != active {
+		e.isActive = active
 		status := "RESUMED (Active)"
 		if !active {
 			status = "PAUSED (Passive)"
 		}
-		AddLog(fmt.Sprintf("Engine %s", status))
+		e.AddLog(fmt.Sprintf("Engine %s", status))
 	}
 }
 
-func IsEngineActive() bool {
-	activeMutex.RLock()
-	defer activeMutex.RUnlock()
-	return isActive
+func (e *Engine) IsActive() bool {
+	e.activeMu.RLock()
+	defer e.activeMu.RUnlock()
+	return e.isActive
 }
 
-func RecordHeartbeat(token string) bool {
-	if !IsEngineActive() {
-		return false
-	} // Only Leader accepts Push
-
-	Mutex.Lock()
-	defer Mutex.Unlock()
-	var targetID int = -1
-	for id, s := range LiveState {
-		if s.Type == "push" && s.Token == token {
-			targetID = id
-			break
-		}
+func (e *Engine) GetAllSites() []models.Site {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	sites := make([]models.Site, 0, len(e.liveState))
+	for _, s := range e.liveState {
+		sites = append(sites, s)
 	}
-	if targetID == -1 {
+	return sites
+}
+
+func (e *Engine) GetLiveState() map[int]models.Site {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	cp := make(map[int]models.Site, len(e.liveState))
+	for k, v := range e.liveState {
+		cp[k] = v
+	}
+	return cp
+}
+
+func (e *Engine) RecordHeartbeat(token string) bool {
+	if !e.IsActive() {
 		return false
 	}
 
-	site := LiveState[targetID]
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	targetID, ok := e.tokenIndex[token]
+	if !ok {
+		return false
+	}
+
+	site, exists := e.liveState[targetID]
+	if !exists {
+		return false
+	}
+
 	site.LastCheck = time.Now()
 	wasDown := site.Status == "DOWN"
 	site.Status = "UP"
 	site.FailureCount = 0
 	site.Latency = 0
-	LiveState[targetID] = site
+	e.liveState[targetID] = site
 
 	if wasDown {
-		AddLog(fmt.Sprintf("Push Monitor '%s' recovered", site.Name))
-		triggerAlert(site.AlertID, "✅ RECOVERY", fmt.Sprintf("Push Monitor '%s' is receiving heartbeats.", site.Name))
+		e.AddLog(fmt.Sprintf("Push Monitor '%s' recovered", site.Name))
+		e.triggerAlert(site.AlertID, "✅ RECOVERY", fmt.Sprintf("Push Monitor '%s' is receiving heartbeats.", site.Name))
 	}
 	return true
 }
 
-func StartEngine() {
+func (e *Engine) addToTokenIndex(site models.Site) {
+	if site.Type == "push" && site.Token != "" {
+		e.tokenIndex[site.Token] = site.ID
+	}
+}
+
+func (e *Engine) removeFromTokenIndex(id int) {
+	for token, sid := range e.tokenIndex {
+		if sid == id {
+			delete(e.tokenIndex, token)
+			return
+		}
+	}
+}
+
+func (e *Engine) Start(ctx context.Context) {
 	go func() {
 		for {
-			s_instance := store.Get()
-			if s_instance == nil {
-				time.Sleep(1 * time.Second)
-				continue
+			select {
+			case <-ctx.Done():
+				return
+			default:
 			}
 
-			sites := s_instance.GetSites()
+			sites, err := e.db.GetSites()
+			if err != nil {
+				e.AddLog(fmt.Sprintf("Failed to load sites: %v", err))
+				select {
+				case <-time.After(5 * time.Second):
+				case <-ctx.Done():
+					return
+				}
+				continue
+			}
 			for _, s := range sites {
-				Mutex.RLock()
-				_, exists := LiveState[s.ID]
-				Mutex.RUnlock()
+				e.mu.RLock()
+				_, exists := e.liveState[s.ID]
+				e.mu.RUnlock()
 				if !exists {
-					Mutex.Lock()
+					e.mu.Lock()
 					s.Status = "PENDING"
 					if s.Type == "push" {
 						s.LastCheck = time.Now()
 					}
-					LiveState[s.ID] = s
-					Mutex.Unlock()
-					go monitorRoutine(s.ID)
+					if h, ok := e.GetHistory(s.ID); ok && len(h.Statuses) > 0 {
+						if h.Statuses[len(h.Statuses)-1] {
+							s.Status = "UP"
+						} else {
+							s.Status = "DOWN"
+						}
+						if len(h.Latencies) > 0 {
+							s.Latency = h.Latencies[len(h.Latencies)-1]
+						}
+					}
+					e.liveState[s.ID] = s
+					e.addToTokenIndex(s)
+					e.mu.Unlock()
+					go e.monitorRoutine(ctx, s.ID)
 				}
 			}
-			time.Sleep(5 * time.Second)
+
+			select {
+			case <-time.After(5 * time.Second):
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 }
 
-func UpdateSiteConfig(site models.Site) {
-	Mutex.Lock()
-	defer Mutex.Unlock()
-	if s, ok := LiveState[site.ID]; ok {
-		s.Name = site.Name
-		s.URL = site.URL
-		s.Type = site.Type
-		s.Interval = site.Interval
-		s.AlertID = site.AlertID
-		s.CheckSSL = site.CheckSSL
-		s.ExpiryThreshold = site.ExpiryThreshold
-		s.MaxRetries = site.MaxRetries
-		s.Hostname = site.Hostname
-		s.Port = site.Port
-		s.Timeout = site.Timeout
-		s.Method = site.Method
-		s.Description = site.Description
-		s.ParentID = site.ParentID
-		s.AcceptedCodes = site.AcceptedCodes
-		s.DNSResolveType = site.DNSResolveType
-		s.DNSServer = site.DNSServer
-		s.IgnoreTLS = site.IgnoreTLS
-		LiveState[site.ID] = s
+func (e *Engine) UpdateSiteConfig(site models.Site) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if existing, ok := e.liveState[site.ID]; ok {
+		e.removeFromTokenIndex(site.ID)
+		site.Status = existing.Status
+		site.StatusCode = existing.StatusCode
+		site.Latency = existing.Latency
+		site.CertExpiry = existing.CertExpiry
+		site.HasSSL = existing.HasSSL
+		site.LastCheck = existing.LastCheck
+		site.SentSSLWarning = existing.SentSSLWarning
+		site.FailureCount = existing.FailureCount
+		e.liveState[site.ID] = site
+		e.addToTokenIndex(site)
 	}
 }
 
-func RemoveSite(id int) {
-	Mutex.Lock()
-	delete(LiveState, id)
-	Mutex.Unlock()
-	RemoveHistory(id)
+func (e *Engine) RemoveSite(id int) {
+	e.mu.Lock()
+	e.removeFromTokenIndex(id)
+	delete(e.liveState, id)
+	e.mu.Unlock()
+	e.removeHistory(id)
 }
 
-func monitorRoutine(id int) {
-	checkByID(id)
+func (e *Engine) ToggleSitePause(id int) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	site, ok := e.liveState[id]
+	if !ok {
+		return false
+	}
+	site.Paused = !site.Paused
+	e.liveState[id] = site
+	if site.Paused {
+		e.AddLog(fmt.Sprintf("Monitor '%s' paused", site.Name))
+	} else {
+		e.AddLog(fmt.Sprintf("Monitor '%s' resumed", site.Name))
+	}
+	return site.Paused
+}
+
+func (e *Engine) monitorRoutine(ctx context.Context, id int) {
+	e.checkByID(id)
 	for {
-		// If paused, just sleep loop to keep goroutine alive but idle
-		if !IsEngineActive() {
-			time.Sleep(5 * time.Second)
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		if !e.IsActive() {
+			select {
+			case <-time.After(5 * time.Second):
+			case <-ctx.Done():
+				return
+			}
 			continue
 		}
 
-		Mutex.RLock()
-		site, exists := LiveState[id]
-		Mutex.RUnlock()
+		e.mu.RLock()
+		site, exists := e.liveState[id]
+		e.mu.RUnlock()
 		if !exists {
 			return
+		}
+
+		if site.Paused {
+			select {
+			case <-time.After(5 * time.Second):
+			case <-ctx.Done():
+				return
+			}
+			continue
 		}
 
 		interval := site.Interval
 		if interval < 5 {
 			interval = 5
 		}
-		time.Sleep(time.Duration(interval) * time.Second)
-		checkByID(id)
+		select {
+		case <-time.After(time.Duration(interval) * time.Second):
+		case <-ctx.Done():
+			return
+		}
+		e.checkByID(id)
 	}
 }
 
-func checkByID(id int) {
-	if !IsEngineActive() {
+func (e *Engine) checkByID(id int) {
+	if !e.IsActive() {
 		return
 	}
 
-	Mutex.RLock()
-	site, exists := LiveState[id]
-	Mutex.RUnlock()
-	if !exists {
+	e.mu.RLock()
+	site, exists := e.liveState[id]
+	e.mu.RUnlock()
+	if !exists || site.Paused {
 		return
 	}
+
 	switch site.Type {
-	case "http":
-		checkHTTP(site)
 	case "push":
-		checkPush(site)
-	case "ping":
-		checkPing(site)
-	case "port":
-		checkPort(site)
-	case "dns":
-		checkDNS(site)
+		e.checkPush(site)
 	case "group":
-		// groups don't perform checks
+		e.checkGroup(site)
+	default:
+		result := RunCheck(site, e.strictClient, e.insecureClient, e.insecureSkipVerify)
+		updatedSite := site
+		updatedSite.HasSSL = result.HasSSL
+		updatedSite.CertExpiry = result.CertExpiry
+		updatedSite.Latency = time.Duration(result.LatencyNs)
+		updatedSite.LastCheck = time.Now()
+		e.handleStatusChange(updatedSite, result.Status, result.StatusCode, time.Duration(result.LatencyNs))
 	}
 }
 
-func checkPush(site models.Site) {
+func (e *Engine) checkPush(site models.Site) {
 	deadline := site.LastCheck.Add(time.Duration(site.Interval) * time.Second).Add(5 * time.Second)
 	if time.Now().After(deadline) {
-		handleStatusChange(site, "DOWN", 0, 0)
-	} else {
-		if site.Status != "UP" {
-			handleStatusChange(site, "UP", 200, 0)
-		}
+		e.handleStatusChange(site, "DOWN", 0, 0)
+	} else if site.Status != "UP" {
+		e.handleStatusChange(site, "UP", 200, 0)
 	}
 }
 
-func checkHTTP(site models.Site) {
-	start := time.Now()
-	timeout := time.Duration(site.Timeout) * time.Second
-	if timeout <= 0 {
-		timeout = 5 * time.Second
-	}
-	skipTLS := insecureSkipVerify || site.IgnoreTLS
-	client := &http.Client{Timeout: timeout, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: skipTLS}}}
-	resp, err := client.Get(site.URL)
-	latency := time.Since(start)
-
-	rawStatus := "UP"
-	rawCode := 0
-	var certExpiry time.Time
-	hasSSL := false
-
-	if err != nil {
-		rawStatus = "DOWN"
-	} else {
-		defer resp.Body.Close()
-		rawCode = resp.StatusCode
-		if resp.StatusCode >= 400 {
-			rawStatus = "DOWN"
-		}
-		if site.CheckSSL && resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
-			hasSSL = true
-			cert := resp.TLS.PeerCertificates[0]
-			certExpiry = cert.NotAfter
-			if time.Now().After(cert.NotAfter) {
-				rawStatus = "SSL EXP"
-			}
-		}
-	}
-	updatedSite := site
-	updatedSite.HasSSL = hasSSL
-	updatedSite.CertExpiry = certExpiry
-	updatedSite.Latency = latency
-	updatedSite.LastCheck = time.Now()
-	handleStatusChange(updatedSite, rawStatus, rawCode, latency)
-}
-
-func handleStatusChange(site models.Site, rawStatus string, code int, latency time.Duration) {
-	// Double check we are still leader before alerting
-	if !IsEngineActive() {
+func (e *Engine) handleStatusChange(site models.Site, rawStatus string, code int, latency time.Duration) {
+	if !e.IsActive() {
 		return
 	}
 
@@ -291,9 +373,9 @@ func handleStatusChange(site models.Site, rawStatus string, code int, latency ti
 		if newState.FailureCount > site.MaxRetries {
 			newState.Status = rawStatus
 			newState.FailureCount = site.MaxRetries + 1
-			AddLog(fmt.Sprintf("Monitor '%s' confirmed DOWN", site.Name))
+			e.AddLog(fmt.Sprintf("Monitor '%s' confirmed DOWN", site.Name))
 		} else {
-			AddLog(fmt.Sprintf("Monitor '%s' failed check %d/%d", site.Name, newState.FailureCount, site.MaxRetries))
+			e.AddLog(fmt.Sprintf("Monitor '%s' failed check %d/%d", site.Name, newState.FailureCount, site.MaxRetries))
 		}
 	} else if rawStatus == "UP" {
 		newState.FailureCount = 0
@@ -306,20 +388,20 @@ func handleStatusChange(site models.Site, rawStatus string, code int, latency ti
 	if site.Type == "http" && site.CheckSSL && site.HasSSL {
 		daysLeft := int(time.Until(site.CertExpiry).Hours() / 24)
 		if daysLeft <= site.ExpiryThreshold && !site.SentSSLWarning && rawStatus != "SSL EXP" {
-			triggerAlert(site.AlertID, "SSL WARNING", fmt.Sprintf("SSL for '%s' expires in %d days", site.Name, daysLeft))
+			e.triggerAlert(site.AlertID, "SSL WARNING", fmt.Sprintf("SSL for '%s' expires in %d days", site.Name, daysLeft))
 			newState.SentSSLWarning = true
 		} else if daysLeft > site.ExpiryThreshold {
 			newState.SentSSLWarning = false
 		}
 	}
 
-	Mutex.Lock()
-	if _, ok := LiveState[site.ID]; ok {
-		LiveState[site.ID] = newState
+	e.mu.Lock()
+	if _, ok := e.liveState[site.ID]; ok {
+		e.liveState[site.ID] = newState
 	}
-	Mutex.Unlock()
+	e.mu.Unlock()
 
-	RecordCheck(site.ID, latency, rawStatus == "UP")
+	e.recordCheck(site.ID, latency, rawStatus == "UP")
 
 	isBroken := func(s string) bool { return s == "DOWN" || s == "SSL EXP" }
 	if !isBroken(site.Status) && isBroken(newState.Status) && newState.Status != "PENDING" {
@@ -327,152 +409,115 @@ func handleStatusChange(site models.Site, rawStatus string, code int, latency ti
 		if site.Type == "push" {
 			msg = fmt.Sprintf("Push Monitor '%s' missed heartbeat.", site.Name)
 		}
-		triggerAlert(site.AlertID, "🚨 ALERT", msg)
+		e.triggerAlert(site.AlertID, "🚨 ALERT", msg)
 	}
 	if isBroken(site.Status) && newState.Status == "UP" {
-		triggerAlert(site.AlertID, "✅ RECOVERY", fmt.Sprintf("Monitor '%s' is UP", site.Name))
+		e.triggerAlert(site.AlertID, "✅ RECOVERY", fmt.Sprintf("Monitor '%s' is UP", site.Name))
 	}
 }
 
-func triggerAlert(alertID int, title, message string) {
-	s_instance := store.Get()
-	if s_instance == nil {
-		return
-	}
-	cfg, ok := s_instance.GetAlert(alertID)
-	if !ok {
+func (e *Engine) triggerAlert(alertID int, title, message string) {
+	cfg, err := e.db.GetAlert(alertID)
+	if err != nil {
 		return
 	}
 	provider := alert.GetProvider(cfg)
 	if provider != nil {
-		go func() { provider.Send(title, message) }()
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_ = ctx
+			_ = provider.Send(title, message)
+		}()
 	}
 }
 
-func siteTimeout(site models.Site) time.Duration {
-	if site.Timeout > 0 {
-		return time.Duration(site.Timeout) * time.Second
+func (e *Engine) checkGroup(site models.Site) {
+	e.mu.RLock()
+	status := "UP"
+	hasChildren := false
+	allPaused := true
+	for _, child := range e.liveState {
+		if child.ParentID != site.ID || child.Type == "group" {
+			continue
+		}
+		hasChildren = true
+		if !child.Paused {
+			allPaused = false
+		}
+		if child.Paused {
+			continue
+		}
+		if child.Status == "DOWN" || child.Status == "SSL EXP" {
+			status = "DOWN"
+		} else if child.Status == "PENDING" && status != "DOWN" {
+			status = "PENDING"
+		}
 	}
-	return 5 * time.Second
+	e.mu.RUnlock()
+
+	if !hasChildren {
+		status = "PENDING"
+	}
+
+	e.mu.Lock()
+	s := e.liveState[site.ID]
+	s.Status = status
+	if hasChildren && allPaused {
+		s.Paused = true
+	}
+	e.liveState[site.ID] = s
+	e.mu.Unlock()
 }
 
-func checkPing(site models.Site) {
-	host := site.Hostname
-	if host == "" {
-		host = site.URL
-	}
+func (e *Engine) SetAggStrategy(strategy AggregationStrategy) {
+	e.aggStrategy = strategy
+}
 
-	pinger, err := probing.NewPinger(host)
-	if err != nil {
-		handleStatusChange(site, "DOWN", 0, 0)
-		AddLog(fmt.Sprintf("Ping '%s' resolve failed: %v", site.Name, err))
+func (e *Engine) IngestProbeResult(nodeID string, siteID int, latencyNs int64, isUp bool) {
+	e.probeResultsMu.Lock()
+	if e.probeResults[siteID] == nil {
+		e.probeResults[siteID] = make(map[string]NodeResult)
+	}
+	e.probeResults[siteID][nodeID] = NodeResult{
+		NodeID:    nodeID,
+		IsUp:      isUp,
+		LatencyNs: latencyNs,
+		CheckedAt: time.Now(),
+	}
+	results := make([]NodeResult, 0, len(e.probeResults[siteID]))
+	for _, r := range e.probeResults[siteID] {
+		results = append(results, r)
+	}
+	e.probeResultsMu.Unlock()
+
+	aggUp, avgLatency := AggregateStatus(results, e.aggStrategy)
+
+	e.mu.RLock()
+	site, exists := e.liveState[siteID]
+	e.mu.RUnlock()
+	if !exists {
 		return
 	}
-	pinger.Count = 1
-	pinger.Timeout = siteTimeout(site)
-	pinger.SetPrivileged(false)
 
-	start := time.Now()
-	err = pinger.Run()
-	latency := time.Since(start)
-
-	if err != nil || pinger.Statistics().PacketsRecv == 0 {
-		updatedSite := site
-		updatedSite.Latency = latency
-		updatedSite.LastCheck = time.Now()
-		handleStatusChange(updatedSite, "DOWN", 0, latency)
-		return
+	rawStatus := "UP"
+	if !aggUp {
+		rawStatus = "DOWN"
 	}
-
-	stats := pinger.Statistics()
-	updatedSite := site
-	updatedSite.Latency = stats.AvgRtt
-	updatedSite.LastCheck = time.Now()
-	handleStatusChange(updatedSite, "UP", 0, stats.AvgRtt)
-}
-
-func checkPort(site models.Site) {
-	host := site.Hostname
-	if host == "" {
-		host = site.URL
-	}
-	addr := net.JoinHostPort(host, strconv.Itoa(site.Port))
-	timeout := siteTimeout(site)
-
-	start := time.Now()
-	conn, err := net.DialTimeout("tcp", addr, timeout)
-	latency := time.Since(start)
-
-	updatedSite := site
-	updatedSite.Latency = latency
-	updatedSite.LastCheck = time.Now()
-
-	if err != nil {
-		handleStatusChange(updatedSite, "DOWN", 0, latency)
-		return
-	}
-	conn.Close()
-	handleStatusChange(updatedSite, "UP", 0, latency)
-}
-
-func checkDNS(site models.Site) {
-	host := site.Hostname
-	if host == "" {
-		host = site.URL
-	}
-
-	server := site.DNSServer
-	if server == "" {
-		server = "1.1.1.1"
-	}
-	if _, _, err := net.SplitHostPort(server); err != nil {
-		server = net.JoinHostPort(server, "53")
-	}
-
-	qtype := dns.TypeA
-	switch site.DNSResolveType {
-	case "AAAA":
-		qtype = dns.TypeAAAA
-	case "MX":
-		qtype = dns.TypeMX
-	case "CNAME":
-		qtype = dns.TypeCNAME
-	case "TXT":
-		qtype = dns.TypeTXT
-	case "NS":
-		qtype = dns.TypeNS
-	case "SOA":
-		qtype = dns.TypeSOA
-	case "SRV":
-		qtype = dns.TypeSRV
-	case "PTR":
-		qtype = dns.TypePTR
-	}
-
-	m := new(dns.Msg)
-	m.SetQuestion(dns.Fqdn(host), qtype)
-
-	c := new(dns.Client)
-	c.Timeout = siteTimeout(site)
-
-	start := time.Now()
-	r, rtt, err := c.Exchange(m, server)
-	_ = rtt
-	latency := time.Since(start)
 
 	updatedSite := site
-	updatedSite.Latency = latency
+	updatedSite.Latency = time.Duration(avgLatency)
 	updatedSite.LastCheck = time.Now()
+	e.handleStatusChange(updatedSite, rawStatus, 0, time.Duration(avgLatency))
+}
 
-	if err != nil {
-		handleStatusChange(updatedSite, "DOWN", 0, latency)
-		return
+func (e *Engine) GetProbeResults(siteID int) map[string]NodeResult {
+	e.probeResultsMu.RLock()
+	defer e.probeResultsMu.RUnlock()
+	src := e.probeResults[siteID]
+	cp := make(map[string]NodeResult, len(src))
+	for k, v := range src {
+		cp[k] = v
 	}
-
-	if r.Rcode != dns.RcodeSuccess {
-		handleStatusChange(updatedSite, "DOWN", r.Rcode, latency)
-		return
-	}
-
-	handleStatusChange(updatedSite, "UP", 0, latency)
+	return cp
 }

@@ -3,8 +3,6 @@ package tui
 import (
 	"fmt"
 	"go-upkeep/internal/models"
-	"go-upkeep/internal/monitor"
-	"go-upkeep/internal/store"
 	"net/url"
 	"strconv"
 	"strings"
@@ -13,45 +11,55 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/lipgloss/table"
 )
 
 var sparkChars = []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
 
-var (
-	siteHeaderStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#7D56F4")).
-			Bold(true).
-			Padding(0, 1)
+func typeIcon(siteType string, collapsed bool) string {
+	switch siteType {
+	case "http":
+		return "→"
+	case "push":
+		return "↓"
+	case "ping":
+		return "↔"
+	case "port":
+		return "⊡"
+	case "dns":
+		return "◆"
+	case "group":
+		if collapsed {
+			return ""
+		}
+		return ""
+	default:
+		return "·"
+	}
+}
 
-	siteCellStyle = lipgloss.NewStyle().Padding(0, 1)
-
-	siteSelectedStyle = lipgloss.NewStyle().
-				Padding(0, 1).
-				Bold(true).
-				Foreground(lipgloss.Color("#ffffff")).
-				Background(lipgloss.Color("#3b3b5c"))
-
-	siteBorderStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#444"))
-
-	siteColWidths = []int{4, 14, 6, 8, 9, 8, 20, 10, 6}
-)
+var siteGroupStyle = lipgloss.NewStyle().
+	Padding(0, 1).
+	Bold(true).
+	Foreground(lipgloss.Color("#7D56F4"))
 
 type siteFormData struct {
-	Name        string
-	SiteType    string
-	URL         string
-	Interval    string
-	AlertID     string
-	CheckSSL    bool
-	Threshold   string
-	Retries     string
-	Hostname    string
-	Port        string
-	Timeout     string
-	Description string
-	IgnoreTLS   bool
+	Name          string
+	SiteType      string
+	URL           string
+	Method        string
+	AcceptedCodes string
+	Interval      string
+	AlertID       string
+	CheckSSL      bool
+	Threshold     string
+	Retries       string
+	Hostname      string
+	Port          string
+	Timeout       string
+	Description   string
+	IgnoreTLS     bool
+	GroupID       string
+	Regions       string
 }
 
 func latencySparkline(latencies []time.Duration, width int) string {
@@ -75,6 +83,9 @@ func latencySparkline(latencies []time.Duration, width int) string {
 	}
 
 	var sb strings.Builder
+	if remaining := width - len(samples); remaining > 0 {
+		sb.WriteString(subtleStyle.Render(strings.Repeat("·", remaining)))
+	}
 	spread := maxL - minL
 	for _, l := range samples {
 		idx := 0
@@ -94,10 +105,6 @@ func latencySparkline(latencies []time.Duration, width int) string {
 			sb.WriteString(dangerStyle.Render(ch))
 		}
 	}
-
-	if remaining := width - len(samples); remaining > 0 {
-		sb.WriteString(subtleStyle.Render(strings.Repeat("·", remaining)))
-	}
 	return sb.String()
 }
 
@@ -112,16 +119,15 @@ func heartbeatSparkline(statuses []bool, width int) string {
 	}
 
 	var sb strings.Builder
+	if remaining := width - len(samples); remaining > 0 {
+		sb.WriteString(subtleStyle.Render(strings.Repeat("·", remaining)))
+	}
 	for _, up := range samples {
 		if up {
 			sb.WriteString(specialStyle.Render("▁"))
 		} else {
 			sb.WriteString(dangerStyle.Render("█"))
 		}
-	}
-
-	if remaining := width - len(samples); remaining > 0 {
-		sb.WriteString(subtleStyle.Render(strings.Repeat("·", remaining)))
 	}
 	return sb.String()
 }
@@ -146,11 +152,17 @@ func fmtLatency(d time.Duration) string {
 	return dangerStyle.Render(s)
 }
 
-func fmtUptime(total, up int) string {
-	if total == 0 {
+func fmtUptime(statuses []bool) string {
+	if len(statuses) == 0 {
 		return subtleStyle.Render("—")
 	}
-	pct := float64(up) / float64(total) * 100
+	up := 0
+	for _, s := range statuses {
+		if s {
+			up++
+		}
+	}
+	pct := float64(up) / float64(len(statuses)) * 100
 	s := fmt.Sprintf("%.1f%%", pct)
 	if pct >= 99 {
 		return specialStyle.Render(s)
@@ -195,7 +207,10 @@ func fmtRetries(site models.Site) string {
 	return s
 }
 
-func fmtStatus(status string) string {
+func fmtStatus(status string, paused bool) string {
+	if paused {
+		return warnStyle.Render("PAUSED")
+	}
 	switch {
 	case status == "DOWN" || status == "SSL EXP":
 		return dangerStyle.Render(status)
@@ -206,79 +221,130 @@ func fmtStatus(status string) string {
 	}
 }
 
+func (m Model) dynamicWidths() (nameW, sparkW int) {
+	fixed := 6 + 10 + 10 + 8 + 8 + 7 + 9 // #, TYPE, STATUS, LATENCY, UPTIME, SSL, RETRY
+	overhead := 30                       // cell padding + borders
+	avail := m.termWidth - 6 - fixed - overhead
+	if avail < 30 {
+		avail = 30
+	}
+	nameW = avail / 2
+	sparkW = avail - nameW - 2 // -2 for spark column padding
+	if nameW < 13 {
+		nameW = 13
+	}
+	if nameW > 40 {
+		nameW = 40
+	}
+	if sparkW < 10 {
+		sparkW = 10
+	}
+	if sparkW > 60 {
+		sparkW = 60
+	}
+	return
+}
+
 func (m Model) viewSitesTab() string {
-	const sparkWidth = 20
 
 	if len(m.sites) == 0 {
-		return "\n  No sites configured. Press [n] to add one."
+		welcome := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#7D56F4")).
+			Padding(1, 3).
+			Render(
+				titleStyle.Render("Go-Upkeep") + "\n\n" +
+					"No monitors configured yet.\n\n" +
+					subtleStyle.Render("[n] Add your first monitor"),
+			)
+		return "\n" + welcome
 	}
 
-	end := m.tableOffset + m.maxTableRows
-	if end > len(m.sites) {
-		end = len(m.sites)
-	}
+	nameW, sparkWidth := m.dynamicWidths()
+	colWidths := []int{6, 0, 10, 10, 8, 8, sparkWidth + 2, 7, 9}
 
-	selectedVisual := m.cursor - m.tableOffset
+	var groupRows map[int]bool
+	return m.renderTable(
+		[]string{"#", "NAME", "TYPE", "STATUS", "LATENCY", "UPTIME", "HISTORY", "SSL", "RETRY"},
+		len(m.sites),
+		func(start, end int) [][]string {
+			groupRows = make(map[int]bool)
+			var rows [][]string
+			for i := start; i < end; i++ {
+				site := m.sites[i]
 
-	var rows [][]string
-	for i := m.tableOffset; i < end; i++ {
-		site := m.sites[i]
-		hist, _ := monitor.GetHistory(site.ID)
-
-		var spark string
-		if site.Type == "push" {
-			spark = heartbeatSparkline(hist.Statuses, sparkWidth)
-		} else {
-			spark = latencySparkline(hist.Latencies, sparkWidth)
-		}
-
-		rows = append(rows, []string{
-			strconv.Itoa(site.ID),
-			m.zones.Mark(fmt.Sprintf("site-%d", i), limitStr(site.Name, 13)),
-			site.Type,
-			fmtStatus(site.Status),
-			fmtLatency(site.Latency),
-			fmtUptime(hist.TotalChecks, hist.UpChecks),
-			spark,
-			fmtSSL(site),
-			fmtRetries(site),
-		})
-	}
-
-	t := table.New().
-		Border(lipgloss.RoundedBorder()).
-		BorderStyle(siteBorderStyle).
-		Headers("ID", "NAME", "TYPE", "STATUS", "LATENCY", "UPTIME", "HISTORY", "SSL", "RETRY").
-		Rows(rows...).
-		StyleFunc(func(row, col int) lipgloss.Style {
-			if row == table.HeaderRow {
-				s := siteHeaderStyle
-				if col < len(siteColWidths) {
-					s = s.Width(siteColWidths[col])
+				if site.Type == "group" {
+					groupRows[i-start] = true
+					icon := typeIcon("group", m.collapsed[site.ID])
+					rows = append(rows, []string{
+						strconv.Itoa(i + 1),
+						m.zones.Mark(fmt.Sprintf("site-%d", i), icon+" "+limitStr(site.Name, nameW-2)),
+						"group",
+						fmtStatus(site.Status, site.Paused),
+						subtleStyle.Render("—"),
+						subtleStyle.Render("—"),
+						subtleStyle.Render(strings.Repeat("·", sparkWidth)),
+						subtleStyle.Render("-"),
+						subtleStyle.Render("—"),
+					})
+					continue
 				}
-				return s
-			}
-			s := siteCellStyle
-			if row == selectedVisual {
-				s = siteSelectedStyle
-			}
-			if col < len(siteColWidths) {
-				s = s.Width(siteColWidths[col])
-			}
-			return s
-		})
 
-	return "\n" + t.Render()
+				name := site.Name
+				if site.ParentID > 0 {
+					prefix := "├"
+					if i+1 >= len(m.sites) || m.sites[i+1].ParentID != site.ParentID {
+						prefix = "└"
+					}
+					name = prefix + " " + limitStr(name, nameW-2)
+				} else {
+					name = limitStr(name, nameW)
+				}
+
+				hist, _ := m.engine.GetHistory(site.ID)
+				var spark string
+				if site.Type == "push" {
+					spark = heartbeatSparkline(hist.Statuses, sparkWidth)
+				} else {
+					spark = latencySparkline(hist.Latencies, sparkWidth)
+				}
+
+				rows = append(rows, []string{
+					strconv.Itoa(i + 1),
+					m.zones.Mark(fmt.Sprintf("site-%d", i), name),
+					typeIcon(site.Type, false) + " " + site.Type,
+					fmtStatus(site.Status, site.Paused),
+					fmtLatency(site.Latency),
+					fmtUptime(hist.Statuses),
+					spark,
+					fmtSSL(site),
+					fmtRetries(site),
+				})
+			}
+			return rows
+		},
+		colWidths,
+		func(row, col int) *lipgloss.Style {
+			if groupRows[row] {
+				s := siteGroupStyle
+				return &s
+			}
+			return nil
+		},
+	)
 }
 
 func (m *Model) initSiteHuhForm() tea.Cmd {
 	m.siteFormData = &siteFormData{
-		SiteType:  "http",
-		Interval:  "60",
-		Threshold: "7",
-		Retries:   "0",
-		Timeout:   "5",
-		Port:      "0",
+		SiteType:      "http",
+		Method:        "GET",
+		AcceptedCodes: "200-299",
+		Interval:      "60",
+		Threshold:     "7",
+		Retries:       "0",
+		Timeout:       "5",
+		Port:          "0",
+		GroupID:       "0",
 	}
 
 	if m.editID > 0 {
@@ -297,18 +363,29 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				m.siteFormData.Timeout = strconv.Itoa(site.Timeout)
 				m.siteFormData.Description = site.Description
 				m.siteFormData.IgnoreTLS = site.IgnoreTLS
+				m.siteFormData.GroupID = strconv.Itoa(site.ParentID)
+				m.siteFormData.Method = site.Method
+				m.siteFormData.AcceptedCodes = site.AcceptedCodes
+				m.siteFormData.Regions = site.Regions
 				break
 			}
 		}
 	}
 
 	alertOpts := []huh.Option[string]{huh.NewOption("None", "0")}
-	if store.Get() != nil {
-		for _, a := range store.Get().GetAllAlerts() {
+	if alerts, err := m.store.GetAllAlerts(); err == nil {
+		for _, a := range alerts {
 			alertOpts = append(alertOpts, huh.NewOption(
 				fmt.Sprintf("%s (%s)", a.Name, a.Type),
 				strconv.Itoa(a.ID),
 			))
+		}
+	}
+
+	groupOpts := []huh.Option[string]{huh.NewOption("None", "0")}
+	for _, s := range m.sites {
+		if s.Type == "group" && s.ID != m.editID {
+			groupOpts = append(groupOpts, huh.NewOption(s.Name, strconv.Itoa(s.ID)))
 		}
 	}
 
@@ -332,12 +409,17 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 					huh.NewOption("DNS", "dns"),
 					huh.NewOption("Group", "group"),
 				).Value(&m.siteFormData.SiteType),
+			huh.NewSelect[string]().Title("Alert Channel").
+				Options(alertOpts...).
+				Value(&m.siteFormData.AlertID),
+		).Title("Monitor Settings"),
+		huh.NewGroup(
 			huh.NewInput().Title("URL").
 				Placeholder("https://example.com").
 				Description("Required for HTTP monitors").
 				Value(&m.siteFormData.URL).
 				Validate(func(s string) error {
-					if m.siteFormData.SiteType == "push" {
+					if m.siteFormData.SiteType == "push" || m.siteFormData.SiteType == "group" {
 						return nil
 					}
 					if s == "" {
@@ -357,12 +439,23 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				}),
 			huh.NewInput().Title("Check Interval (seconds)").
 				Placeholder("60").
-				Value(&m.siteFormData.Interval),
-			huh.NewSelect[string]().Title("Alert Channel").
-				Options(alertOpts...).
-				Value(&m.siteFormData.AlertID),
-		).Title("Monitor Settings"),
-		huh.NewGroup(
+				Value(&m.siteFormData.Interval).
+				Validate(func(s string) error {
+					if m.siteFormData.SiteType == "group" {
+						return nil
+					}
+					v, err := strconv.Atoi(s)
+					if err != nil {
+						return fmt.Errorf("must be a number")
+					}
+					if v < 5 {
+						return fmt.Errorf("minimum interval is 5 seconds")
+					}
+					return nil
+				}),
+			huh.NewSelect[string]().Title("Parent Group").
+				Options(groupOpts...).
+				Value(&m.siteFormData.GroupID),
 			huh.NewInput().Title("Hostname / IP").
 				Placeholder("10.0.0.1").
 				Description("Target for ping/port/DNS monitors").
@@ -370,26 +463,95 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 			huh.NewInput().Title("Port").
 				Placeholder("0").
 				Description("Target port for TCP port monitors").
-				Value(&m.siteFormData.Port),
+				Value(&m.siteFormData.Port).
+				Validate(func(s string) error {
+					v, err := strconv.Atoi(s)
+					if err != nil {
+						return fmt.Errorf("must be a number")
+					}
+					if v < 0 || v > 65535 {
+						return fmt.Errorf("port must be 0-65535")
+					}
+					return nil
+				}),
 			huh.NewInput().Title("Timeout (seconds)").
 				Placeholder("5").
-				Value(&m.siteFormData.Timeout),
+				Value(&m.siteFormData.Timeout).
+				Validate(func(s string) error {
+					if m.siteFormData.SiteType == "group" {
+						return nil
+					}
+					v, err := strconv.Atoi(s)
+					if err != nil {
+						return fmt.Errorf("must be a number")
+					}
+					if v < 1 || v > 300 {
+						return fmt.Errorf("timeout must be 1-300 seconds")
+					}
+					return nil
+				}),
 			huh.NewInput().Title("Description").
 				Placeholder("Optional description").
 				Value(&m.siteFormData.Description),
-		).Title("Connection"),
+			huh.NewInput().Title("Probe Regions").
+				Placeholder("us-east, eu-west (empty = all)").
+				Description("Comma-separated regions for distributed probing").
+				Value(&m.siteFormData.Regions),
+		).Title("Connection").WithHideFunc(func() bool {
+			return m.siteFormData.SiteType == "group"
+		}),
+		huh.NewGroup(
+			huh.NewSelect[string]().Title("HTTP Method").
+				Options(
+					huh.NewOption("GET", "GET"),
+					huh.NewOption("POST", "POST"),
+					huh.NewOption("PUT", "PUT"),
+					huh.NewOption("PATCH", "PATCH"),
+					huh.NewOption("DELETE", "DELETE"),
+					huh.NewOption("HEAD", "HEAD"),
+					huh.NewOption("OPTIONS", "OPTIONS"),
+				).Value(&m.siteFormData.Method),
+			huh.NewInput().Title("Accepted Status Codes").
+				Placeholder("200-299").
+				Description("Ranges (200-299) and singles (301) separated by commas").
+				Value(&m.siteFormData.AcceptedCodes),
+		).Title("HTTP Settings").WithHideFunc(func() bool {
+			return m.siteFormData.SiteType != "http"
+		}),
 		huh.NewGroup(
 			huh.NewConfirm().Title("Monitor SSL Certificate?").
 				Value(&m.siteFormData.CheckSSL),
 			huh.NewInput().Title("SSL Warning Threshold (days)").
 				Placeholder("7").
-				Value(&m.siteFormData.Threshold),
+				Value(&m.siteFormData.Threshold).
+				Validate(func(s string) error {
+					v, err := strconv.Atoi(s)
+					if err != nil {
+						return fmt.Errorf("must be a number")
+					}
+					if v < 1 {
+						return fmt.Errorf("threshold must be at least 1 day")
+					}
+					return nil
+				}),
 			huh.NewInput().Title("Max Retries Before Alert").
 				Placeholder("0").
-				Value(&m.siteFormData.Retries),
+				Value(&m.siteFormData.Retries).
+				Validate(func(s string) error {
+					v, err := strconv.Atoi(s)
+					if err != nil {
+						return fmt.Errorf("must be a number")
+					}
+					if v < 0 {
+						return fmt.Errorf("retries cannot be negative")
+					}
+					return nil
+				}),
 			huh.NewConfirm().Title("Ignore TLS Errors?").
 				Value(&m.siteFormData.IgnoreTLS),
-		).Title("Advanced"),
+		).Title("Advanced").WithHideFunc(func() bool {
+			return m.siteFormData.SiteType == "group"
+		}),
 	).WithTheme(huh.ThemeDracula())
 
 	return m.huhForm.Init()
@@ -403,6 +565,7 @@ func (m *Model) submitSiteForm() {
 	retries, _ := strconv.Atoi(d.Retries)
 	port, _ := strconv.Atoi(d.Port)
 	timeout, _ := strconv.Atoi(d.Timeout)
+	groupID, _ := strconv.Atoi(d.GroupID)
 	if interval < 1 {
 		interval = 60
 	}
@@ -425,13 +588,103 @@ func (m *Model) submitSiteForm() {
 		Timeout:         timeout,
 		Description:     d.Description,
 		IgnoreTLS:       d.IgnoreTLS,
+		ParentID:        groupID,
+		Method:          d.Method,
+		AcceptedCodes:   d.AcceptedCodes,
+		Regions:         d.Regions,
 	}
 
 	if m.editID > 0 {
-		store.Get().UpdateSite(site)
-		monitor.UpdateSiteConfig(site)
+		if err := m.store.UpdateSite(site); err != nil {
+			m.engine.AddLog("Update site failed: " + err.Error())
+		}
+		m.engine.UpdateSiteConfig(site)
 	} else {
-		store.Get().AddSite(site)
+		if err := m.store.AddSite(site); err != nil {
+			m.engine.AddLog("Add site failed: " + err.Error())
+		}
 	}
 	m.state = stateDashboard
+}
+
+func (m Model) viewDetailPanel() string {
+	if m.cursor >= len(m.sites) {
+		return ""
+	}
+	site := m.sites[m.cursor]
+	hist, _ := m.engine.GetHistory(site.ID)
+
+	var b strings.Builder
+
+	title := titleStyle.Render(fmt.Sprintf("  %s", site.Name))
+	b.WriteString(title + "\n\n")
+
+	row := func(label, value string) {
+		b.WriteString(fmt.Sprintf("  %-16s %s\n", subtleStyle.Render(label), value))
+	}
+
+	row("Status", fmtStatus(site.Status, site.Paused))
+	row("Type", site.Type)
+	if site.URL != "" {
+		row("URL", site.URL)
+	}
+	if site.Hostname != "" {
+		row("Host", site.Hostname)
+	}
+	if site.Port > 0 {
+		row("Port", strconv.Itoa(site.Port))
+	}
+	row("Interval", fmt.Sprintf("%ds", site.Interval))
+	row("Timeout", fmt.Sprintf("%ds", site.Timeout))
+	row("Latency", fmtLatency(site.Latency))
+	row("Uptime", fmtUptime(hist.Statuses))
+
+	if site.Type == "http" {
+		row("Method", site.Method)
+		row("Codes", site.AcceptedCodes)
+		row("SSL", fmtSSL(site))
+		if site.IgnoreTLS {
+			row("TLS Verify", dangerStyle.Render("disabled"))
+		}
+	}
+
+	if site.MaxRetries > 0 {
+		row("Retries", fmtRetries(site))
+	}
+	if site.Regions != "" {
+		row("Regions", site.Regions)
+	}
+	if site.Description != "" {
+		row("Description", site.Description)
+	}
+	if !site.LastCheck.IsZero() {
+		row("Last Check", site.LastCheck.Format("15:04:05"))
+	}
+
+	probeResults := m.engine.GetProbeResults(site.ID)
+	if len(probeResults) > 0 {
+		b.WriteString("\n" + subtleStyle.Render("  PROBE RESULTS") + "\n")
+		for nodeID, result := range probeResults {
+			status := specialStyle.Render("UP")
+			if !result.IsUp {
+				status = dangerStyle.Render("DN")
+			}
+			latency := time.Duration(result.LatencyNs).Milliseconds()
+			ago := time.Since(result.CheckedAt).Truncate(time.Second)
+			b.WriteString(fmt.Sprintf("  %-14s %s  %dms  %s ago\n", nodeID, status, latency, ago))
+		}
+	}
+
+	b.WriteString("\n")
+	const sparkWidth = 40
+	if site.Type == "push" {
+		b.WriteString("  " + heartbeatSparkline(hist.Statuses, sparkWidth))
+	} else {
+		b.WriteString("  " + latencySparkline(hist.Latencies, sparkWidth))
+	}
+
+	b.WriteString("\n\n")
+	b.WriteString(subtleStyle.Render("  [i/Esc] Back  [e] Edit  [q] Quit"))
+
+	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
 }
