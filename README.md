@@ -1,60 +1,63 @@
 # Go-Upkeep
 
-![Go Version](https://img.shields.io/badge/go-1.23-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Docker](https://img.shields.io/docker/pulls/rdgames1000/go-upkeep)
+Self-hosted uptime monitor with a TUI you can access over SSH. No browser, no install on the client — just `ssh -p 23234 your-server`.
 
-**Go-Upkeep** is a self-hosted infrastructure monitor with a retro-futuristic TUI accessible via SSH. It supports High Availability, Push Monitoring, and Alerting.
+Originally forked from [RDGames/go-upkeep](https://github.com/RDGames/go-upkeep). This is an independent fork with significant additions.
 
-*   🌐 **Full Documentation:** [goupkeep.org/docs](https://goupkeep.org/docs)
-*   🐳 **Docker Hub:** [rdgames1000/go-upkeep](https://hub.docker.com/r/rdgames1000/go-upkeep)
+## What it does
 
----
+- **6 check types**: HTTP, Push (heartbeat), Ping, Port, DNS, Groups
+- **9 alert providers**: Discord, Slack, Email, Ntfy, Webhook, Telegram, PagerDuty, Pushover, Gotify
+- **Config as code**: define monitors in YAML, apply declaratively, version control your setup
+- **HA clustering**: leader/follower with automatic failover
+- **Prometheus metrics**: `/metrics` endpoint for Grafana dashboards
+- **Public status page**: HTML + JSON, toggle with an env var
+- **SQLite or Postgres**: SQLite for single-node, Postgres for production
+- **Uptime Kuma import**: migrate from Kuma with one command
 
-## 🚀 Key Features
+## Quick start
 
-*   **SSH Dashboard**: Zero-install client. Manage monitors via `ssh -p 23234 your-server`.
-*   **Protocols**:
-    *   **HTTP/S**: Active polling with SSL certificate expiration tracking.
-    *   **PUSH**: Heartbeat endpoints for cron jobs/backup scripts.
-*   **High Availability**: Leader/Follower clustering with automatic failover.
-*   **Alerting**: Native support for Discord, Slack, Email (SMTP), and Webhooks.
-*   **Backends**: SQLite (default) or PostgreSQL (production).
-
----
-
-## 🛠️ Quick Start (Local Dev)
-
-**Option A: Native Go (Fastest)**
 ```bash
-go mod tidy
 go run cmd/goupkeep/main.go
-# Connect: ssh -p 23234 localhost
+ssh -p 23234 localhost
 ```
 
-**Option B: Docker Compose (Full Stack)**
+Seed some demo data to see it in action:
+
 ```bash
-docker compose -f docker-compose.dev.yml up --build
+go run cmd/goupkeep/main.go -demo
 ```
 
----
+## Config as code
 
-## 📦 Production Deployment
+Export your current monitors:
 
-For critical infrastructure, we recommend Docker Compose.
+```bash
+goupkeep export -o monitors.yaml
+```
 
-### 1. The Compose File
-Create `docker-compose.yml`:
+Apply a config file:
+
+```bash
+goupkeep apply -f monitors.yaml
+goupkeep apply -f monitors.yaml --dry-run   # see what would change
+goupkeep apply -f monitors.yaml --prune     # delete anything not in the YAML
+```
+
+See [docs/config-as-code.md](docs/config-as-code.md) for the full reference.
+
+## Docker
 
 ```yaml
 services:
   monitor:
-    image: rdgames1000/go-upkeep:latest
-    container_name: go-upkeep
+    build: .
     restart: unless-stopped
-    stdin_open: true # Required for initial setup console
+    stdin_open: true
     tty: true
     ports:
-      - "23234:23234" # SSH
-      - "8080:8080"   # HTTP (Status Page & Push)
+      - "23234:23234"
+      - "8080:8080"
     volumes:
       - ./data:/data
       - ./ssh_keys:/app/.ssh
@@ -62,28 +65,26 @@ services:
       - UPKEEP_DB_TYPE=sqlite
       - UPKEEP_DB_DSN=/data/upkeep.db
       - UPKEEP_STATUS_ENABLED=true
-      - UPKEEP_CLUSTER_SECRET=ChangeMeToSomethingSecure
+      - UPKEEP_CLUSTER_SECRET=change-me
 ```
 
-### 2. Initial Setup (Identity Management)
-**Important:** V2 stores SSH keys in the database. You must create the first user manually via the console.
+First run: attach to the container (`docker attach go-upkeep`), go to the Users tab, add your SSH public key. Then detach with `Ctrl+P, Ctrl+Q` and connect normally over SSH.
 
-1.  Start the stack: `docker compose up -d`
-2.  Attach to the container: `docker attach go-upkeep`
-3.  Inside the TUI:
-    *   Press **[Tab]** to select the `Users` tab.
-    *   Press **[n]** to create a user.
-    *   Enter your username and paste your public key (`cat ~/.ssh/id_ed25519.pub`).
-    *   Press **[Enter]** to save.
-4.  Detach: Press **Ctrl+P** then **Ctrl+Q**.
+## Environment variables
 
-### 3. Usage
-Connect using your standard SSH client:
-```bash
-ssh -p 23234 your-server-ip
-```
+| Variable | Default | What it does |
+|---|---|---|
+| `UPKEEP_PORT` | `23234` | SSH server port |
+| `UPKEEP_HTTP_PORT` | `8080` | HTTP server port (status page, push, metrics) |
+| `UPKEEP_DB_TYPE` | `sqlite` | `sqlite` or `postgres` |
+| `UPKEEP_DB_DSN` | `upkeep.db` | Database path or connection string |
+| `UPKEEP_STATUS_ENABLED` | `false` | Enable public status page |
+| `UPKEEP_STATUS_TITLE` | `System Status` | Status page title |
+| `UPKEEP_CLUSTER_MODE` | `leader` | `leader` or `follower` |
+| `UPKEEP_PEER_URL` | | Leader URL for follower nodes |
+| `UPKEEP_CLUSTER_SECRET` | | Shared key for cluster + API auth |
+| `UPKEEP_INSECURE_SKIP_VERIFY` | `false` | Skip TLS verification for checks |
 
-For advanced setups (Postgres, Clustering, Migration), please consult the [Official Documentation](https://goupkeep.org/docs).
+## License
 
-## 📄 License
-MIT License.
+MIT — see [LICENSE](LICENSE).
