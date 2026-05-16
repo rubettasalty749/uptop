@@ -300,6 +300,34 @@ func (s *SQLStore) DeleteNode(id string) error {
 	return err
 }
 
+func (s *SQLStore) SaveLog(message string) error {
+	_, err := s.db.Exec(s.q("INSERT INTO logs (message) VALUES (?)"), message)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(s.q(`DELETE FROM logs WHERE id NOT IN (
+		SELECT id FROM logs ORDER BY created_at DESC LIMIT 200
+	)`))
+	return err
+}
+
+func (s *SQLStore) LoadLogs(limit int) ([]string, error) {
+	rows, err := s.db.Query(s.q("SELECT message FROM logs ORDER BY created_at DESC LIMIT ?"), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var logs []string
+	for rows.Next() {
+		var msg string
+		if err := rows.Scan(&msg); err != nil {
+			return logs, err
+		}
+		logs = append(logs, msg)
+	}
+	return logs, rows.Err()
+}
+
 func (s *SQLStore) LoadAllHistory(limit int) (map[int][]models.CheckRecord, error) {
 	result := make(map[int][]models.CheckRecord)
 	rows, err := s.db.Query(s.q(`

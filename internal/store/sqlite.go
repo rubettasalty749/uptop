@@ -51,6 +51,11 @@ func (d *SQLiteDialect) CreateTablesSQL() []string {
 			last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
 			version TEXT DEFAULT ''
 		)`,
+		`CREATE TABLE IF NOT EXISTS logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			message TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 	}
 }
 

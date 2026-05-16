@@ -50,6 +50,8 @@ func (m *mockStore) GetNode(string) (models.ProbeNode, error)         { return m
 func (m *mockStore) GetAllNodes() ([]models.ProbeNode, error)         { return nil, nil }
 func (m *mockStore) UpdateNodeLastSeen(string) error                  { return nil }
 func (m *mockStore) DeleteNode(string) error                          { return nil }
+func (m *mockStore) SaveLog(string) error                             { return nil }
+func (m *mockStore) LoadLogs(int) ([]string, error)                   { return nil, nil }
 
 func TestMetricsHandler(t *testing.T) {
 	ms := &mockStore{

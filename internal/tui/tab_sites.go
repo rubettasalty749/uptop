@@ -152,11 +152,17 @@ func fmtLatency(d time.Duration) string {
 	return dangerStyle.Render(s)
 }
 
-func fmtUptime(total, up int) string {
-	if total == 0 {
+func fmtUptime(statuses []bool) string {
+	if len(statuses) == 0 {
 		return subtleStyle.Render("—")
 	}
-	pct := float64(up) / float64(total) * 100
+	up := 0
+	for _, s := range statuses {
+		if s {
+			up++
+		}
+	}
+	pct := float64(up) / float64(len(statuses)) * 100
 	s := fmt.Sprintf("%.1f%%", pct)
 	if pct >= 99 {
 		return specialStyle.Render(s)
@@ -309,7 +315,7 @@ func (m Model) viewSitesTab() string {
 					typeIcon(site.Type, false) + " " + site.Type,
 					fmtStatus(site.Status, site.Paused),
 					fmtLatency(site.Latency),
-					fmtUptime(hist.TotalChecks, hist.UpChecks),
+					fmtUptime(hist.Statuses),
 					spark,
 					fmtSSL(site),
 					fmtRetries(site),
@@ -631,7 +637,7 @@ func (m Model) viewDetailPanel() string {
 	row("Interval", fmt.Sprintf("%ds", site.Interval))
 	row("Timeout", fmt.Sprintf("%ds", site.Timeout))
 	row("Latency", fmtLatency(site.Latency))
-	row("Uptime", fmtUptime(hist.TotalChecks, hist.UpChecks))
+	row("Uptime", fmtUptime(hist.Statuses))
 
 	if site.Type == "http" {
 		row("Method", site.Method)

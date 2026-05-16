@@ -260,6 +260,7 @@ func runServe(args []string) {
 	defer cancel()
 
 	eng.InitHistory()
+	eng.InitLogs()
 	eng.Start(ctx)
 
 	server.Start(server.ServerConfig{
