@@ -203,7 +203,7 @@ func (m Model) dynamicWidths() (nameW, sparkW int) {
 		avail = 30
 	}
 	nameW = avail / 2
-	sparkW = avail - nameW - 4 // -4 for spark column padding
+	sparkW = avail - nameW - 2 // -2 for spark column padding
 	if nameW < 13 {
 		nameW = 13
 	}
@@ -235,7 +235,7 @@ func (m Model) viewSitesTab() string {
 	}
 
 	nameW, sparkWidth := m.dynamicWidths()
-	colWidths := []int{6, 0, 10, 10, 8, 8, sparkWidth + 4, 7, 9}
+	colWidths := []int{6, 0, 10, 10, 8, 8, sparkWidth + 2, 7, 9}
 
 	var groupRows map[int]bool
 	return m.renderTable(
