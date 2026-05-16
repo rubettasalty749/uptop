@@ -550,3 +550,85 @@ func (m *Model) submitSiteForm() {
 	}
 	m.state = stateDashboard
 }
+
+func (m Model) viewDetailPanel() string {
+	if m.cursor >= len(m.sites) {
+		return ""
+	}
+	site := m.sites[m.cursor]
+	hist, _ := m.engine.GetHistory(site.ID)
+
+	var b strings.Builder
+
+	title := titleStyle.Render(fmt.Sprintf("  %s", site.Name))
+	b.WriteString(title + "\n\n")
+
+	row := func(label, value string) {
+		b.WriteString(fmt.Sprintf("  %-16s %s\n", subtleStyle.Render(label), value))
+	}
+
+	row("Status", fmtStatus(site.Status, site.Paused))
+	row("Type", site.Type)
+	if site.URL != "" {
+		row("URL", site.URL)
+	}
+	if site.Hostname != "" {
+		row("Host", site.Hostname)
+	}
+	if site.Port > 0 {
+		row("Port", strconv.Itoa(site.Port))
+	}
+	row("Interval", fmt.Sprintf("%ds", site.Interval))
+	row("Timeout", fmt.Sprintf("%ds", site.Timeout))
+	row("Latency", fmtLatency(site.Latency))
+	row("Uptime", fmtUptime(hist.TotalChecks, hist.UpChecks))
+
+	if site.Type == "http" {
+		row("Method", site.Method)
+		row("Codes", site.AcceptedCodes)
+		row("SSL", fmtSSL(site))
+		if site.IgnoreTLS {
+			row("TLS Verify", dangerStyle.Render("disabled"))
+		}
+	}
+
+	if site.MaxRetries > 0 {
+		row("Retries", fmtRetries(site))
+	}
+	if site.Regions != "" {
+		row("Regions", site.Regions)
+	}
+	if site.Description != "" {
+		row("Description", site.Description)
+	}
+	if !site.LastCheck.IsZero() {
+		row("Last Check", site.LastCheck.Format("15:04:05"))
+	}
+
+	probeResults := m.engine.GetProbeResults(site.ID)
+	if len(probeResults) > 0 {
+		b.WriteString("\n" + subtleStyle.Render("  PROBE RESULTS") + "\n")
+		for nodeID, result := range probeResults {
+			status := specialStyle.Render("UP")
+			if !result.IsUp {
+				status = dangerStyle.Render("DN")
+			}
+			latency := time.Duration(result.LatencyNs).Milliseconds()
+			ago := time.Since(result.CheckedAt).Truncate(time.Second)
+			b.WriteString(fmt.Sprintf("  %-14s %s  %dms  %s ago\n", nodeID, status, latency, ago))
+		}
+	}
+
+	b.WriteString("\n")
+	const sparkWidth = 40
+	if site.Type == "push" {
+		b.WriteString("  " + heartbeatSparkline(hist.Statuses, sparkWidth))
+	} else {
+		b.WriteString("  " + latencySparkline(hist.Latencies, sparkWidth))
+	}
+
+	b.WriteString("\n\n")
+	b.WriteString(subtleStyle.Render("  [i/Esc] Back  [e] Edit  [q] Quit"))
+
+	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
+}

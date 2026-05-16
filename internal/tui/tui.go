@@ -37,6 +37,7 @@ const (
 	stateDashboard sessionState = iota
 	stateLogs
 	stateUsers
+	stateDetail
 	stateFormSite
 	stateFormAlert
 	stateFormUser
@@ -247,6 +248,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch m.state {
+		case stateDetail:
+			switch msg.String() {
+			case "i", "esc":
+				m.state = stateDashboard
+			case "q":
+				return m, tea.Quit
+			}
+			return m, nil
 		case stateDashboard, stateLogs, stateUsers:
 			switch msg.String() {
 			case "q":
@@ -329,6 +338,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					site.Paused = !site.Paused
 					_ = m.store.UpdateSitePaused(site.ID, site.Paused)
 					m.refreshData()
+				}
+			case "i":
+				if m.currentTab == 0 && len(m.sites) > 0 {
+					m.state = stateDetail
 				}
 			case "d", "backspace":
 				if m.currentTab == 0 && len(m.sites) > 0 {
@@ -564,13 +577,37 @@ func (m Model) View() string {
 			return lipgloss.NewStyle().Padding(1, 2).Render(header + "\n\n" + m.huhForm.View() + "\n" + footer)
 		}
 		return ""
+	case stateDetail:
+		return m.viewDetailPanel()
 	default:
 		return m.zones.Scan(m.viewDashboard())
 	}
 }
 
 func (m Model) viewDashboard() string {
-	tabs := []string{"Sites", "Alerts", "Logs", "Nodes"}
+	downCount := 0
+	for _, s := range m.sites {
+		if !s.Paused && (s.Status == "DOWN" || s.Status == "SSL EXP") {
+			downCount++
+		}
+	}
+	offlineNodes := 0
+	for _, n := range m.nodes {
+		if !n.LastSeen.IsZero() && time.Since(n.LastSeen) > 5*time.Minute {
+			offlineNodes++
+		}
+	}
+
+	sitesLabel := "Sites"
+	if downCount > 0 {
+		sitesLabel = fmt.Sprintf("Sites (%d↓)", downCount)
+	}
+	nodesLabel := "Nodes"
+	if offlineNodes > 0 {
+		nodesLabel = fmt.Sprintf("Nodes (%d!)", offlineNodes)
+	}
+
+	tabs := []string{sitesLabel, "Alerts", "Logs", nodesLabel}
 	if m.isAdmin {
 		tabs = append(tabs, "Users")
 	}
@@ -605,10 +642,29 @@ func (m Model) viewDashboard() string {
 		}
 	}
 
-	footer := subtleStyle.Render("\n[n] New  [e/Enter] Edit  [d] Delete  [p] Pause  [Space] Collapse  [Tab/Click] Switch  [q] Quit")
-	if m.currentTab == 4 {
-		footer = subtleStyle.Render("\n[n] Add User  [d] Revoke  [Tab/Click] Switch  [Ctrl+L] Clear  [q] Quit")
+	upCount := len(m.sites) - downCount
+	statusParts := []string{fmt.Sprintf("%d/%d UP", upCount, len(m.sites))}
+	if len(m.nodes) > 0 {
+		online := 0
+		for _, n := range m.nodes {
+			if !n.LastSeen.IsZero() && time.Since(n.LastSeen) < 60*time.Second {
+				online++
+			}
+		}
+		statusParts = append(statusParts, fmt.Sprintf("%d probes", online))
 	}
+	statusLine := subtleStyle.Render(strings.Join(statusParts, " · "))
+
+	var keys string
+	switch m.currentTab {
+	case 0:
+		keys = "[n]New [e]Edit [i]Info [d]Del [p]Pause [Tab]Switch [q]Quit"
+	case 4:
+		keys = "[n]Add [d]Revoke [Tab]Switch [q]Quit"
+	default:
+		keys = "[Tab]Switch [q]Quit"
+	}
+	footer := "\n" + statusLine + "  " + subtleStyle.Render(keys)
 	s := lipgloss.NewStyle().Padding(1, 2)
 	if m.termHeight > 0 {
 		s = s.MaxHeight(m.termHeight)
