@@ -7,15 +7,9 @@ import (
 	"go-upkeep/internal/alert"
 	"go-upkeep/internal/models"
 	"go-upkeep/internal/store"
-	"net"
 	"net/http"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
-
-	"github.com/miekg/dns"
-	probing "github.com/prometheus-community/pro-bing"
 )
 
 type Engine struct {
@@ -33,6 +27,10 @@ type Engine struct {
 
 	tokenIndex map[string]int
 
+	probeResultsMu sync.RWMutex
+	probeResults   map[int]map[string]NodeResult
+	aggStrategy    AggregationStrategy
+
 	db                 store.Store
 	insecureSkipVerify bool
 	strictClient       *http.Client
@@ -41,11 +39,13 @@ type Engine struct {
 
 func NewEngine(s store.Store) *Engine {
 	return &Engine{
-		liveState:  make(map[int]models.Site),
-		histories:  make(map[int]*SiteHistory),
-		tokenIndex: make(map[string]int),
-		isActive:   true,
-		db:         s,
+		liveState:    make(map[int]models.Site),
+		histories:    make(map[int]*SiteHistory),
+		tokenIndex:   make(map[string]int),
+		probeResults: make(map[int]map[string]NodeResult),
+		aggStrategy:  AggAnyDown,
+		isActive:     true,
+		db:           s,
 		strictClient: &http.Client{
 			Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: false}},
 		},
@@ -310,19 +310,20 @@ func (e *Engine) checkByID(id int) {
 	if !exists || site.Paused {
 		return
 	}
+
 	switch site.Type {
-	case "http":
-		e.checkHTTP(site)
 	case "push":
 		e.checkPush(site)
-	case "ping":
-		e.checkPing(site)
-	case "port":
-		e.checkPort(site)
-	case "dns":
-		e.checkDNS(site)
 	case "group":
 		e.checkGroup(site)
+	default:
+		result := RunCheck(site, e.strictClient, e.insecureClient, e.insecureSkipVerify)
+		updatedSite := site
+		updatedSite.HasSSL = result.HasSSL
+		updatedSite.CertExpiry = result.CertExpiry
+		updatedSite.Latency = time.Duration(result.LatencyNs)
+		updatedSite.LastCheck = time.Now()
+		e.handleStatusChange(updatedSite, result.Status, result.StatusCode, time.Duration(result.LatencyNs))
 	}
 }
 
@@ -333,61 +334,6 @@ func (e *Engine) checkPush(site models.Site) {
 	} else if site.Status != "UP" {
 		e.handleStatusChange(site, "UP", 200, 0)
 	}
-}
-
-func (e *Engine) checkHTTP(site models.Site) {
-	method := site.Method
-	if method == "" {
-		method = "GET"
-	}
-
-	timeout := siteTimeout(site)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, method, site.URL, nil)
-	if err != nil {
-		e.handleStatusChange(site, "DOWN", 0, 0)
-		return
-	}
-
-	client := e.strictClient
-	if e.insecureSkipVerify || site.IgnoreTLS {
-		client = e.insecureClient
-	}
-
-	start := time.Now()
-	resp, err := client.Do(req)
-	latency := time.Since(start)
-
-	rawStatus := "UP"
-	rawCode := 0
-	var certExpiry time.Time
-	hasSSL := false
-
-	if err != nil {
-		rawStatus = "DOWN"
-	} else {
-		defer resp.Body.Close()
-		rawCode = resp.StatusCode
-		if !isCodeAccepted(rawCode, site.AcceptedCodes) {
-			rawStatus = "DOWN"
-		}
-		if site.CheckSSL && resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
-			hasSSL = true
-			cert := resp.TLS.PeerCertificates[0]
-			certExpiry = cert.NotAfter
-			if time.Now().After(cert.NotAfter) {
-				rawStatus = "SSL EXP"
-			}
-		}
-	}
-	updatedSite := site
-	updatedSite.HasSSL = hasSSL
-	updatedSite.CertExpiry = certExpiry
-	updatedSite.Latency = latency
-	updatedSite.LastCheck = time.Now()
-	e.handleStatusChange(updatedSite, rawStatus, rawCode, latency)
 }
 
 func (e *Engine) handleStatusChange(site models.Site, rawStatus string, code int, latency time.Duration) {
@@ -462,94 +408,6 @@ func (e *Engine) triggerAlert(alertID int, title, message string) {
 	}
 }
 
-func siteTimeout(site models.Site) time.Duration {
-	if site.Timeout > 0 {
-		return time.Duration(site.Timeout) * time.Second
-	}
-	return 5 * time.Second
-}
-
-func isCodeAccepted(code int, accepted string) bool {
-	if accepted == "" {
-		return code >= 200 && code < 300
-	}
-	for _, part := range strings.Split(accepted, ",") {
-		part = strings.TrimSpace(part)
-		if strings.Contains(part, "-") {
-			bounds := strings.SplitN(part, "-", 2)
-			lo, err1 := strconv.Atoi(strings.TrimSpace(bounds[0]))
-			hi, err2 := strconv.Atoi(strings.TrimSpace(bounds[1]))
-			if err1 == nil && err2 == nil && code >= lo && code <= hi {
-				return true
-			}
-		} else {
-			if v, err := strconv.Atoi(part); err == nil && code == v {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func (e *Engine) checkPing(site models.Site) {
-	host := site.Hostname
-	if host == "" {
-		host = site.URL
-	}
-
-	pinger, err := probing.NewPinger(host)
-	if err != nil {
-		e.handleStatusChange(site, "DOWN", 0, 0)
-		e.AddLog(fmt.Sprintf("Ping '%s' resolve failed: %v", site.Name, err))
-		return
-	}
-	pinger.Count = 1
-	pinger.Timeout = siteTimeout(site)
-	pinger.SetPrivileged(false)
-
-	start := time.Now()
-	err = pinger.Run()
-	latency := time.Since(start)
-
-	if err != nil || pinger.Statistics().PacketsRecv == 0 {
-		updatedSite := site
-		updatedSite.Latency = latency
-		updatedSite.LastCheck = time.Now()
-		e.handleStatusChange(updatedSite, "DOWN", 0, latency)
-		return
-	}
-
-	stats := pinger.Statistics()
-	updatedSite := site
-	updatedSite.Latency = stats.AvgRtt
-	updatedSite.LastCheck = time.Now()
-	e.handleStatusChange(updatedSite, "UP", 0, stats.AvgRtt)
-}
-
-func (e *Engine) checkPort(site models.Site) {
-	host := site.Hostname
-	if host == "" {
-		host = site.URL
-	}
-	addr := net.JoinHostPort(host, strconv.Itoa(site.Port))
-	timeout := siteTimeout(site)
-
-	start := time.Now()
-	conn, err := net.DialTimeout("tcp", addr, timeout)
-	latency := time.Since(start)
-
-	updatedSite := site
-	updatedSite.Latency = latency
-	updatedSite.LastCheck = time.Now()
-
-	if err != nil {
-		e.handleStatusChange(updatedSite, "DOWN", 0, latency)
-		return
-	}
-	conn.Close()
-	e.handleStatusChange(updatedSite, "UP", 0, latency)
-}
-
 func (e *Engine) checkGroup(site models.Site) {
 	e.mu.RLock()
 	status := "UP"
@@ -588,63 +446,54 @@ func (e *Engine) checkGroup(site models.Site) {
 	e.mu.Unlock()
 }
 
-func (e *Engine) checkDNS(site models.Site) {
-	host := site.Hostname
-	if host == "" {
-		host = site.URL
+func (e *Engine) SetAggStrategy(strategy AggregationStrategy) {
+	e.aggStrategy = strategy
+}
+
+func (e *Engine) IngestProbeResult(nodeID string, siteID int, latencyNs int64, isUp bool) {
+	e.probeResultsMu.Lock()
+	if e.probeResults[siteID] == nil {
+		e.probeResults[siteID] = make(map[string]NodeResult)
+	}
+	e.probeResults[siteID][nodeID] = NodeResult{
+		NodeID:    nodeID,
+		IsUp:      isUp,
+		LatencyNs: latencyNs,
+		CheckedAt: time.Now(),
+	}
+	results := make([]NodeResult, 0, len(e.probeResults[siteID]))
+	for _, r := range e.probeResults[siteID] {
+		results = append(results, r)
+	}
+	e.probeResultsMu.Unlock()
+
+	aggUp, avgLatency := AggregateStatus(results, e.aggStrategy)
+
+	e.mu.RLock()
+	site, exists := e.liveState[siteID]
+	e.mu.RUnlock()
+	if !exists {
+		return
 	}
 
-	server := site.DNSServer
-	if server == "" {
-		server = "1.1.1.1"
+	rawStatus := "UP"
+	if !aggUp {
+		rawStatus = "DOWN"
 	}
-	if _, _, err := net.SplitHostPort(server); err != nil {
-		server = net.JoinHostPort(server, "53")
-	}
-
-	qtype := dns.TypeA
-	switch site.DNSResolveType {
-	case "AAAA":
-		qtype = dns.TypeAAAA
-	case "MX":
-		qtype = dns.TypeMX
-	case "CNAME":
-		qtype = dns.TypeCNAME
-	case "TXT":
-		qtype = dns.TypeTXT
-	case "NS":
-		qtype = dns.TypeNS
-	case "SOA":
-		qtype = dns.TypeSOA
-	case "SRV":
-		qtype = dns.TypeSRV
-	case "PTR":
-		qtype = dns.TypePTR
-	}
-
-	m := new(dns.Msg)
-	m.SetQuestion(dns.Fqdn(host), qtype)
-
-	c := new(dns.Client)
-	c.Timeout = siteTimeout(site)
-
-	start := time.Now()
-	r, _, err := c.Exchange(m, server)
-	latency := time.Since(start)
 
 	updatedSite := site
-	updatedSite.Latency = latency
+	updatedSite.Latency = time.Duration(avgLatency)
 	updatedSite.LastCheck = time.Now()
+	e.handleStatusChange(updatedSite, rawStatus, 0, time.Duration(avgLatency))
+}
 
-	if err != nil {
-		e.handleStatusChange(updatedSite, "DOWN", 0, latency)
-		return
+func (e *Engine) GetProbeResults(siteID int) map[string]NodeResult {
+	e.probeResultsMu.RLock()
+	defer e.probeResultsMu.RUnlock()
+	src := e.probeResults[siteID]
+	cp := make(map[string]NodeResult, len(src))
+	for k, v := range src {
+		cp[k] = v
 	}
-
-	if r.Rcode != dns.RcodeSuccess {
-		e.handleStatusChange(updatedSite, "DOWN", r.Rcode, latency)
-		return
-	}
-
-	e.handleStatusChange(updatedSite, "UP", 0, latency)
+	return cp
 }

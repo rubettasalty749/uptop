@@ -44,6 +44,13 @@ func (d *SQLiteDialect) CreateTablesSQL() []string {
 			is_up BOOLEAN, checked_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_check_history_site ON check_history(site_id, checked_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS nodes (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			region TEXT DEFAULT '',
+			last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+			version TEXT DEFAULT ''
+		)`,
 	}
 }
 
@@ -60,7 +67,13 @@ func (d *SQLiteDialect) MigrationsSQL() []string {
 		"ALTER TABLE sites ADD COLUMN dns_server TEXT DEFAULT ''",
 		"ALTER TABLE sites ADD COLUMN ignore_tls BOOLEAN DEFAULT 0",
 		"ALTER TABLE sites ADD COLUMN paused BOOLEAN DEFAULT 0",
+		"ALTER TABLE check_history ADD COLUMN node_id TEXT DEFAULT ''",
+		"ALTER TABLE sites ADD COLUMN regions TEXT DEFAULT ''",
 	}
+}
+
+func (d *SQLiteDialect) UpsertNodeSQL() string {
+	return "INSERT OR REPLACE INTO nodes (id, name, region, last_seen, version) VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)"
 }
 
 func (d *SQLiteDialect) ResetSequenceOnEmpty(db *sql.DB, table string) {

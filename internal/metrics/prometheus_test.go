@@ -44,6 +44,12 @@ func (m *mockStore) AddSiteReturningID(models.Site) (int, error) { return 0, nil
 func (m *mockStore) AddAlertReturningID(string, string, map[string]string) (int, error) {
 	return 0, nil
 }
+func (m *mockStore) SaveCheckFromNode(int, string, int64, bool) error { return nil }
+func (m *mockStore) RegisterNode(models.ProbeNode) error              { return nil }
+func (m *mockStore) GetNode(string) (models.ProbeNode, error)         { return models.ProbeNode{}, nil }
+func (m *mockStore) GetAllNodes() ([]models.ProbeNode, error)         { return nil, nil }
+func (m *mockStore) UpdateNodeLastSeen(string) error                  { return nil }
+func (m *mockStore) DeleteNode(string) error                          { return nil }
 
 func TestMetricsHandler(t *testing.T) {
 	ms := &mockStore{

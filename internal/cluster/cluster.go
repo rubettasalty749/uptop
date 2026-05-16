@@ -33,6 +33,8 @@ func Start(ctx context.Context, cfg Config, eng *monitor.Engine) {
 		eng.SetActive(false)
 		go runFollowerLoop(ctx, cfg, eng)
 	}
+
+	// "probe" mode is handled directly in main.go before cluster.Start is called
 }
 
 func runFollowerLoop(ctx context.Context, cfg Config, eng *monitor.Engine) {

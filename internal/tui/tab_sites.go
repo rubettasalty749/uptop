@@ -37,6 +37,7 @@ type siteFormData struct {
 	Description   string
 	IgnoreTLS     bool
 	GroupID       string
+	Regions       string
 }
 
 func latencySparkline(latencies []time.Duration, width int) string {
@@ -309,6 +310,7 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				m.siteFormData.GroupID = strconv.Itoa(site.ParentID)
 				m.siteFormData.Method = site.Method
 				m.siteFormData.AcceptedCodes = site.AcceptedCodes
+				m.siteFormData.Regions = site.Regions
 				break
 			}
 		}
@@ -435,6 +437,10 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 			huh.NewInput().Title("Description").
 				Placeholder("Optional description").
 				Value(&m.siteFormData.Description),
+			huh.NewInput().Title("Probe Regions").
+				Placeholder("us-east, eu-west (empty = all)").
+				Description("Comma-separated regions for distributed probing").
+				Value(&m.siteFormData.Regions),
 		).Title("Connection").WithHideFunc(func() bool {
 			return m.siteFormData.SiteType == "group"
 		}),
@@ -529,6 +535,7 @@ func (m *Model) submitSiteForm() {
 		ParentID:        groupID,
 		Method:          d.Method,
 		AcceptedCodes:   d.AcceptedCodes,
+		Regions:         d.Regions,
 	}
 
 	if m.editID > 0 {

@@ -166,6 +166,44 @@ func runServe(args []string) {
 		clusterKey = v
 	}
 
+	nodeID := os.Getenv("UPKEEP_NODE_ID")
+	nodeName := os.Getenv("UPKEEP_NODE_NAME")
+	nodeRegion := os.Getenv("UPKEEP_NODE_REGION")
+	aggStrategy := os.Getenv("UPKEEP_AGG_STRATEGY")
+
+	if clusterMode == "probe" {
+		if nodeID == "" {
+			fmt.Fprintln(os.Stderr, "UPKEEP_NODE_ID is required for probe mode")
+			os.Exit(1)
+		}
+		if clusterPeer == "" {
+			fmt.Fprintln(os.Stderr, "UPKEEP_PEER_URL is required for probe mode")
+			os.Exit(1)
+		}
+
+		fmt.Printf("Cluster: Running as PROBE (node=%s, region=%s)\n", nodeID, nodeRegion)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan os.Signal, 1)
+		signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-done
+			cancel()
+		}()
+
+		if err := cluster.RunProbe(ctx, cluster.ProbeConfig{
+			NodeID:    nodeID,
+			NodeName:  nodeName,
+			Region:    nodeRegion,
+			LeaderURL: clusterPeer,
+			SharedKey: clusterKey,
+			Interval:  30,
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "Probe error: %v\n", err)
+		}
+		return
+	}
+
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	port := fs.Int("port", portVal, "SSH Port")
 	flagDBType := fs.String("db-type", dbType, "Database type")
@@ -213,6 +251,9 @@ func runServe(args []string) {
 	eng := monitor.NewEngine(s)
 	if os.Getenv("UPKEEP_INSECURE_SKIP_VERIFY") == "true" {
 		eng.SetInsecureSkipVerify(true)
+	}
+	if aggStrategy != "" {
+		eng.SetAggStrategy(monitor.AggregationStrategy(aggStrategy))
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

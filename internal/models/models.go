@@ -25,6 +25,7 @@ type Site struct {
 	DNSServer      string
 	IgnoreTLS      bool
 	Paused         bool
+	Regions        string
 
 	FailureCount   int
 	Status         string
@@ -52,9 +53,18 @@ type User struct {
 
 type CheckRecord struct {
 	SiteID    int
+	NodeID    string
 	LatencyNs int64
 	IsUp      bool
 	CheckedAt time.Time
+}
+
+type ProbeNode struct {
+	ID       string
+	Name     string
+	Region   string
+	LastSeen time.Time
+	Version  string
 }
 
 type Backup struct {

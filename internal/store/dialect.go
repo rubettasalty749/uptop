@@ -10,6 +10,7 @@ type Dialect interface {
 	ResetSequenceOnEmpty(db *sql.DB, table string)
 	ImportWipe(tx *sql.Tx)
 	ImportResetSequences(tx *sql.Tx)
+	UpsertNodeSQL() string
 }
 
 // rewritePlaceholders converts ? markers to $1, $2, etc. for Postgres.

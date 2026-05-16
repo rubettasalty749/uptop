@@ -74,6 +74,19 @@ func Handler(eng *monitor.Engine) http.HandlerFunc {
 			writeGauge(&b, "upkeep_monitor_checks_up_total", labels(s), float64(h.UpChecks))
 		}
 
+		writeHelp(&b, "upkeep_probe_up", "gauge", "Whether a probe node is online (1) or offline (0) based on last-seen time.")
+		for _, site := range sites {
+			probeResults := eng.GetProbeResults(site.ID)
+			for nodeID, result := range probeResults {
+				val := 0
+				if result.IsUp {
+					val = 1
+				}
+				nodeLabels := fmt.Sprintf(`id="%d",name="%s",node="%s"`, site.ID, escapeLabelValue(site.Name), escapeLabelValue(nodeID))
+				writeGauge(&b, "upkeep_probe_up", nodeLabels, float64(val))
+			}
+		}
+
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		w.Write([]byte(b.String()))
 	}
