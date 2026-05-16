@@ -551,7 +551,12 @@ func (m Model) View() string {
 		}
 		msg := dangerStyle.Render(fmt.Sprintf("Delete %s \"%s\"?", kind, m.deleteName))
 		hint := subtleStyle.Render("[y] Confirm  [n] Cancel")
-		return lipgloss.NewStyle().Padding(2, 4).Render(msg + "\n\n" + hint)
+		box := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#F25D94")).
+			Padding(1, 3).
+			Render(msg + "\n\n" + hint)
+		return lipgloss.NewStyle().Padding(2, 4).Render(box)
 	case stateFormSite, stateFormAlert, stateFormUser:
 		if m.huhForm != nil {
 			title := ""
