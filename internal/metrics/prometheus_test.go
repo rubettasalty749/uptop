@@ -34,8 +34,16 @@ func (m *mockStore) SaveCheck(int, int64, bool) error                         { 
 func (m *mockStore) LoadAllHistory(int) (map[int][]models.CheckRecord, error) {
 	return nil, nil
 }
-func (m *mockStore) ExportData() (models.Backup, error) { return models.Backup{}, nil }
-func (m *mockStore) ImportData(models.Backup) error     { return nil }
+func (m *mockStore) ExportData() (models.Backup, error)        { return models.Backup{}, nil }
+func (m *mockStore) ImportData(models.Backup) error            { return nil }
+func (m *mockStore) GetSiteByName(string) (models.Site, error) { return models.Site{}, nil }
+func (m *mockStore) GetAlertByName(string) (models.AlertConfig, error) {
+	return models.AlertConfig{}, nil
+}
+func (m *mockStore) AddSiteReturningID(models.Site) (int, error) { return 0, nil }
+func (m *mockStore) AddAlertReturningID(string, string, map[string]string) (int, error) {
+	return 0, nil
+}
 
 func TestMetricsHandler(t *testing.T) {
 	ms := &mockStore{

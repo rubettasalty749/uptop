@@ -110,6 +110,53 @@ func (s *SQLStore) DeleteSite(id int) error {
 	return nil
 }
 
+func (s *SQLStore) GetSiteByName(name string) (models.Site, error) {
+	bf := s.dialect.BoolFalse()
+	query := fmt.Sprintf(
+		"SELECT id, COALESCE(name, url), url, COALESCE(type, 'http'), COALESCE(token, ''), interval, alert_id, check_ssl, threshold, max_retries, COALESCE(hostname, ''), COALESCE(port, 0), COALESCE(timeout, 0), COALESCE(method, 'GET'), COALESCE(description, ''), COALESCE(parent_id, 0), COALESCE(accepted_codes, '200-299'), COALESCE(dns_resolve_type, ''), COALESCE(dns_server, ''), COALESCE(ignore_tls, %s), COALESCE(paused, %s) FROM sites WHERE name = %s",
+		bf, bf, s.q("?"),
+	)
+	var st models.Site
+	err := s.db.QueryRow(query, name).Scan(&st.ID, &st.Name, &st.URL, &st.Type, &st.Token, &st.Interval, &st.AlertID,
+		&st.CheckSSL, &st.ExpiryThreshold, &st.MaxRetries, &st.Hostname, &st.Port, &st.Timeout,
+		&st.Method, &st.Description, &st.ParentID, &st.AcceptedCodes, &st.DNSResolveType,
+		&st.DNSServer, &st.IgnoreTLS, &st.Paused)
+	return st, err
+}
+
+func (s *SQLStore) GetAlertByName(name string) (models.AlertConfig, error) {
+	var a models.AlertConfig
+	var settingsJSON string
+	err := s.db.QueryRow(s.q("SELECT id, name, type, settings FROM alerts WHERE name = ?"), name).Scan(&a.ID, &a.Name, &a.Type, &settingsJSON)
+	if err != nil {
+		return a, err
+	}
+	json.Unmarshal([]byte(settingsJSON), &a.Settings)
+	return a, nil
+}
+
+func (s *SQLStore) AddSiteReturningID(site models.Site) (int, error) {
+	if err := s.AddSite(site); err != nil {
+		return 0, err
+	}
+	created, err := s.GetSiteByName(site.Name)
+	if err != nil {
+		return 0, err
+	}
+	return created.ID, nil
+}
+
+func (s *SQLStore) AddAlertReturningID(name, aType string, settings map[string]string) (int, error) {
+	if err := s.AddAlert(name, aType, settings); err != nil {
+		return 0, err
+	}
+	created, err := s.GetAlertByName(name)
+	if err != nil {
+		return 0, err
+	}
+	return created.ID, nil
+}
+
 func (s *SQLStore) GetAllAlerts() ([]models.AlertConfig, error) {
 	rows, err := s.db.Query("SELECT id, name, type, settings FROM alerts")
 	if err != nil {
