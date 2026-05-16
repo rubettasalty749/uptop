@@ -61,6 +61,9 @@ func latencySparkline(latencies []time.Duration, width int) string {
 	}
 
 	var sb strings.Builder
+	if remaining := width - len(samples); remaining > 0 {
+		sb.WriteString(subtleStyle.Render(strings.Repeat("·", remaining)))
+	}
 	spread := maxL - minL
 	for _, l := range samples {
 		idx := 0
@@ -80,10 +83,6 @@ func latencySparkline(latencies []time.Duration, width int) string {
 			sb.WriteString(dangerStyle.Render(ch))
 		}
 	}
-
-	if remaining := width - len(samples); remaining > 0 {
-		sb.WriteString(subtleStyle.Render(strings.Repeat("·", remaining)))
-	}
 	return sb.String()
 }
 
@@ -98,16 +97,15 @@ func heartbeatSparkline(statuses []bool, width int) string {
 	}
 
 	var sb strings.Builder
+	if remaining := width - len(samples); remaining > 0 {
+		sb.WriteString(subtleStyle.Render(strings.Repeat("·", remaining)))
+	}
 	for _, up := range samples {
 		if up {
 			sb.WriteString(specialStyle.Render("▁"))
 		} else {
 			sb.WriteString(dangerStyle.Render("█"))
 		}
-	}
-
-	if remaining := width - len(samples); remaining > 0 {
-		sb.WriteString(subtleStyle.Render(strings.Repeat("·", remaining)))
 	}
 	return sb.String()
 }
