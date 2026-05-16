@@ -82,6 +82,9 @@ type Model struct {
 	alerts []models.AlertConfig
 	users  []models.User
 	nodes  []models.ProbeNode
+
+	filterMode bool
+	filterText string
 }
 
 func InitialModel(isAdmin bool, s store.Store, eng *monitor.Engine) Model {
@@ -247,6 +250,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.ClearScreen
 		}
 
+		if m.filterMode {
+			switch msg.String() {
+			case "esc":
+				m.filterMode = false
+				m.filterText = ""
+				m.cursor = 0
+				m.tableOffset = 0
+				m.refreshData()
+			case "enter":
+				m.filterMode = false
+			case "backspace":
+				if len(m.filterText) > 0 {
+					m.filterText = m.filterText[:len(m.filterText)-1]
+					m.cursor = 0
+					m.tableOffset = 0
+					m.refreshData()
+				}
+			case "ctrl+c":
+				return m, tea.Quit
+			default:
+				if len(msg.String()) == 1 {
+					m.filterText += msg.String()
+					m.cursor = 0
+					m.tableOffset = 0
+					m.refreshData()
+				}
+			}
+			return m, nil
+		}
+
 		switch m.state {
 		case stateDetail:
 			switch msg.String() {
@@ -260,6 +293,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "q":
 				return m, tea.Quit
+			case "/":
+				if m.currentTab == 0 {
+					m.filterMode = true
+					return m, nil
+				}
 			case "tab":
 				m.switchTab(m.currentTab + 1)
 			case "pgup", "pgdown":
@@ -471,9 +509,11 @@ func (m *Model) refreshData() {
 	for pid := range children {
 		c := children[pid]
 		sort.Slice(c, func(i, j int) bool { return c[i].ID < c[j].ID })
+		sort.SliceStable(c, func(i, j int) bool { return siteOrder(c[i]) < siteOrder(c[j]) })
 		children[pid] = c
 	}
 	sort.Slice(ungrouped, func(i, j int) bool { return ungrouped[i].ID < ungrouped[j].ID })
+	sort.SliceStable(ungrouped, func(i, j int) bool { return siteOrder(ungrouped[i]) < siteOrder(ungrouped[j]) })
 
 	var ordered []models.Site
 	for _, g := range groups {
@@ -483,6 +523,16 @@ func (m *Model) refreshData() {
 		}
 	}
 	ordered = append(ordered, ungrouped...)
+	if m.filterText != "" {
+		var filtered []models.Site
+		needle := strings.ToLower(m.filterText)
+		for _, s := range ordered {
+			if strings.Contains(strings.ToLower(s.Name), needle) {
+				filtered = append(filtered, s)
+			}
+		}
+		ordered = filtered
+	}
 	m.sites = ordered
 	if alerts, err := m.store.GetAllAlerts(); err == nil {
 		m.alerts = alerts
@@ -536,7 +586,19 @@ func (m Model) pulseIndicator() string {
 	if brightness > 255 {
 		brightness = 255
 	}
-	color := fmt.Sprintf("#%02x%02x%02x", brightness/3, brightness, brightness/2)
+	hasDown := false
+	for _, s := range m.sites {
+		if !s.Paused && (s.Status == "DOWN" || s.Status == "SSL EXP") {
+			hasDown = true
+			break
+		}
+	}
+	var color string
+	if hasDown {
+		color = fmt.Sprintf("#%02x%02x%02x", brightness, brightness/4, brightness/4)
+	} else {
+		color = fmt.Sprintf("#%02x%02x%02x", brightness/3, brightness, brightness/2)
+	}
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(pulseFrames[frame])
 }
 
@@ -674,21 +736,44 @@ func (m Model) viewDashboard() string {
 	}
 	statusLine := strings.Join(statusParts, subtleStyle.Render(" · "))
 
-	var keys string
-	switch m.currentTab {
-	case 0:
-		keys = "[n]New [e]Edit [i]Info [d]Del [p]Pause [Tab]Switch [q]Quit"
-	case 4:
-		keys = "[n]Add [d]Revoke [Tab]Switch [q]Quit"
-	default:
-		keys = "[Tab]Switch [q]Quit"
+	var footer string
+	if m.filterMode {
+		cursor := lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Render("│")
+		footer = "\n" + titleStyle.Render("/") + " " + m.filterText + cursor + "  " + subtleStyle.Render("[Enter]Apply [Esc]Clear")
+	} else {
+		var keys string
+		switch m.currentTab {
+		case 0:
+			keys = "[/]Filter [n]New [e]Edit [i]Info [d]Del [p]Pause [Tab]Switch [q]Quit"
+		case 4:
+			keys = "[n]Add [d]Revoke [Tab]Switch [q]Quit"
+		default:
+			keys = "[Tab]Switch [q]Quit"
+		}
+		footer = "\n" + statusLine + "  " + subtleStyle.Render(keys)
+		if m.filterText != "" && m.currentTab == 0 {
+			footer = "\n" + subtleStyle.Render(fmt.Sprintf("filter: %s", m.filterText)) + "  " + statusLine + "  " + subtleStyle.Render(keys)
+		}
 	}
-	footer := "\n" + statusLine + "  " + subtleStyle.Render(keys)
 	s := lipgloss.NewStyle().Padding(1, 2)
 	if m.termHeight > 0 {
 		s = s.MaxHeight(m.termHeight)
 	}
 	return s.Render(header + "\n" + content + "\n" + footer)
+}
+
+func siteOrder(s models.Site) int {
+	if s.Paused {
+		return 3
+	}
+	switch s.Status {
+	case "DOWN", "SSL EXP":
+		return 0
+	case "PENDING":
+		return 2
+	default:
+		return 1
+	}
 }
 
 func limitStr(text string, max int) string {

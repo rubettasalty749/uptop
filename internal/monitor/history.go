@@ -2,7 +2,7 @@ package monitor
 
 import "time"
 
-const maxHistoryLen = 30
+const maxHistoryLen = 60
 
 type SiteHistory struct {
 	Latencies   []time.Duration
