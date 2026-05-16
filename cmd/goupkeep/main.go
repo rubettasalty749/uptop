@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"go-upkeep/internal/cluster"
+	"go-upkeep/internal/config"
 	"go-upkeep/internal/importer"
 	"go-upkeep/internal/models"
 	"go-upkeep/internal/monitor"
@@ -27,6 +28,102 @@ import (
 func main() {
 	log.SetOutput(os.Stderr)
 
+	if len(os.Args) >= 2 {
+		switch os.Args[1] {
+		case "apply":
+			runApply(os.Args[2:])
+			return
+		case "export":
+			runExport(os.Args[2:])
+			return
+		}
+	}
+	runServe(os.Args[1:])
+}
+
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func openStore(dbType, dsn string) store.Store {
+	var s store.Store
+	var err error
+	if dbType == "postgres" {
+		s, err = store.NewPostgresStore(dsn)
+	} else {
+		s, err = store.NewSQLiteStore(dsn)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "database error: %v\n", err)
+		os.Exit(1)
+	}
+	if err := s.Init(); err != nil {
+		fmt.Fprintf(os.Stderr, "database init error: %v\n", err)
+		os.Exit(1)
+	}
+	return s
+}
+
+func runApply(args []string) {
+	fs := flag.NewFlagSet("apply", flag.ExitOnError)
+	filePath := fs.String("f", "", "Path to YAML config file (required)")
+	dryRun := fs.Bool("dry-run", false, "Show planned changes without applying")
+	prune := fs.Bool("prune", false, "Delete monitors/alerts not in YAML")
+	dbType := fs.String("db-type", envOrDefault("UPKEEP_DB_TYPE", "sqlite"), "Database type")
+	dsn := fs.String("dsn", envOrDefault("UPKEEP_DB_DSN", "upkeep.db"), "Database DSN")
+	fs.Parse(args)
+
+	if *filePath == "" {
+		fmt.Fprintln(os.Stderr, "error: -f flag is required")
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	s := openStore(*dbType, *dsn)
+
+	f, err := config.LoadFile(*filePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	changes, err := config.Apply(s, f, config.ApplyOpts{
+		DryRun: *dryRun,
+		Prune:  *prune,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Print(config.FormatChanges(changes, *dryRun))
+}
+
+func runExport(args []string) {
+	fs := flag.NewFlagSet("export", flag.ExitOnError)
+	outPath := fs.String("o", "-", "Output file path (- for stdout)")
+	dbType := fs.String("db-type", envOrDefault("UPKEEP_DB_TYPE", "sqlite"), "Database type")
+	dsn := fs.String("dsn", envOrDefault("UPKEEP_DB_DSN", "upkeep.db"), "Database DSN")
+	fs.Parse(args)
+
+	s := openStore(*dbType, *dsn)
+
+	f, err := config.Export(s)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := config.WriteFile(f, *outPath); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runServe(args []string) {
 	portVal := 23234
 	dbType := "sqlite"
 	dbDSN := "upkeep.db"
@@ -59,7 +156,6 @@ func main() {
 	if v := os.Getenv("UPKEEP_STATUS_TITLE"); v != "" {
 		statusTitle = v
 	}
-
 	if v := os.Getenv("UPKEEP_CLUSTER_MODE"); v != "" {
 		clusterMode = v
 	}
@@ -70,12 +166,13 @@ func main() {
 		clusterKey = v
 	}
 
-	port := flag.Int("port", portVal, "SSH Port")
-	flagDBType := flag.String("db-type", dbType, "Database type")
-	flagDSN := flag.String("dsn", dbDSN, "Database DSN")
-	demo := flag.Bool("demo", false, "Seed demo data")
-	importKuma := flag.String("import-kuma", "", "Import Uptime Kuma backup JSON file")
-	flag.Parse()
+	fs := flag.NewFlagSet("serve", flag.ExitOnError)
+	port := fs.Int("port", portVal, "SSH Port")
+	flagDBType := fs.String("db-type", dbType, "Database type")
+	flagDSN := fs.String("dsn", dbDSN, "Database DSN")
+	demo := fs.Bool("demo", false, "Seed demo data")
+	importKuma := fs.String("import-kuma", "", "Import Uptime Kuma backup JSON file")
+	fs.Parse(args)
 
 	var s store.Store
 	var dbErr error

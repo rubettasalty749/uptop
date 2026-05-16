@@ -21,6 +21,12 @@ type Store interface {
 	UpdateAlert(id int, name, aType string, settings map[string]string) error
 	DeleteAlert(id int) error
 
+	// Declarative config support
+	GetSiteByName(name string) (models.Site, error)
+	GetAlertByName(name string) (models.AlertConfig, error)
+	AddSiteReturningID(site models.Site) (int, error)
+	AddAlertReturningID(name, aType string, settings map[string]string) (int, error)
+
 	// Users
 	GetAllUsers() ([]models.User, error)
 	AddUser(username, publicKey, role string) error
