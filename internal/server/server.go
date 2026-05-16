@@ -358,8 +358,13 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) {
 	if cfg.EnableStatus {
 		mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) { renderStatusPage(w, cfg.Title, eng) })
 		mux.HandleFunc("/status/json", func(w http.ResponseWriter, r *http.Request) {
+			state := eng.GetLiveState()
+			for id, site := range state {
+				site.Token = ""
+				state[id] = site
+			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(eng.GetLiveState())
+			json.NewEncoder(w).Encode(state)
 		})
 	}
 
