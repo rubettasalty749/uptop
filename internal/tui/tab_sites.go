@@ -15,6 +15,28 @@ import (
 
 var sparkChars = []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
 
+func typeIcon(siteType string, collapsed bool) string {
+	switch siteType {
+	case "http":
+		return "→"
+	case "push":
+		return "↓"
+	case "ping":
+		return "↔"
+	case "port":
+		return "⊡"
+	case "dns":
+		return "◆"
+	case "group":
+		if collapsed {
+			return ""
+		}
+		return ""
+	default:
+		return "·"
+	}
+}
+
 var siteGroupStyle = lipgloss.NewStyle().
 	Padding(0, 1).
 	Bold(true).
@@ -247,13 +269,10 @@ func (m Model) viewSitesTab() string {
 
 				if site.Type == "group" {
 					groupRows[i-start] = true
-					arrow := "▾"
-					if m.collapsed[site.ID] {
-						arrow = "▸"
-					}
+					icon := typeIcon("group", m.collapsed[site.ID])
 					rows = append(rows, []string{
 						strconv.Itoa(i + 1),
-						m.zones.Mark(fmt.Sprintf("site-%d", i), arrow+" "+limitStr(site.Name, nameW-2)),
+						m.zones.Mark(fmt.Sprintf("site-%d", i), icon+" "+limitStr(site.Name, nameW-2)),
 						"group",
 						fmtStatus(site.Status, site.Paused),
 						subtleStyle.Render("—"),
@@ -287,7 +306,7 @@ func (m Model) viewSitesTab() string {
 				rows = append(rows, []string{
 					strconv.Itoa(i + 1),
 					m.zones.Mark(fmt.Sprintf("site-%d", i), name),
-					site.Type,
+					typeIcon(site.Type, false) + " " + site.Type,
 					fmtStatus(site.Status, site.Paused),
 					fmtLatency(site.Latency),
 					fmtUptime(hist.TotalChecks, hist.UpChecks),
