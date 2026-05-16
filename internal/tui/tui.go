@@ -80,6 +80,7 @@ type Model struct {
 	sites  []models.Site
 	alerts []models.AlertConfig
 	users  []models.User
+	nodes  []models.ProbeNode
 }
 
 func InitialModel(isAdmin bool, s store.Store, eng *monitor.Engine) Model {
@@ -131,12 +132,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.refreshData()
 				m.state = stateDashboard
-				if m.deleteTab == 3 {
+				if m.deleteTab == 4 {
 					m.state = stateUsers
 				}
 			case "n", "N", "esc":
 				m.state = stateDashboard
-				if m.deleteTab == 3 {
+				if m.deleteTab == 4 {
 					m.state = stateUsers
 				}
 			case "ctrl+c":
@@ -155,7 +156,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if keyMsg.String() == "esc" {
 				m.huhForm = nil
 				m.state = stateDashboard
-				if m.currentTab == 3 {
+				if m.currentTab == 4 {
 					m.state = stateUsers
 				}
 				return m, nil
@@ -214,6 +215,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.currentTab == 1 {
 					listLen = len(m.alerts)
 				} else if m.currentTab == 3 {
+					listLen = len(m.nodes)
+				} else if m.currentTab == 4 {
 					listLen = len(m.users)
 				}
 				if msg.Button == tea.MouseButtonWheelUp {
@@ -273,6 +276,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						max = len(m.alerts) - 1
 					}
 					if m.currentTab == 3 {
+						max = len(m.nodes) - 1
+					}
+					if m.currentTab == 4 {
 						max = len(m.users) - 1
 					}
 					if m.cursor < max {
@@ -291,7 +297,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if m.currentTab == 1 {
 					m.state = stateFormAlert
 					return m, m.initAlertHuhForm()
-				} else if m.currentTab == 3 && m.isAdmin {
+				} else if m.currentTab == 4 && m.isAdmin {
 					m.state = stateFormUser
 					return m, m.initUserHuhForm()
 				}
@@ -305,7 +311,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.editID = m.alerts[m.cursor].ID
 					m.state = stateFormAlert
 					return m, m.initAlertHuhForm()
-				} else if m.currentTab == 3 && m.isAdmin && len(m.users) > 0 {
+				} else if m.currentTab == 4 && m.isAdmin && len(m.users) > 0 {
 					m.editID = m.users[m.cursor].ID
 					m.state = stateFormUser
 					return m, m.initUserHuhForm()
@@ -335,10 +341,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.deleteName = m.alerts[m.cursor].Name
 					m.deleteTab = 1
 					m.state = stateConfirmDelete
-				} else if m.currentTab == 3 && m.isAdmin && len(m.users) > 0 {
+				} else if m.currentTab == 4 && m.isAdmin && len(m.users) > 0 {
 					m.deleteID = m.users[m.cursor].ID
 					m.deleteName = m.users[m.cursor].Username
-					m.deleteTab = 3
+					m.deleteTab = 4
 					m.state = stateConfirmDelete
 				}
 			}
@@ -348,9 +354,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	tabCount := 3
+	tabCount := 4
 	if m.isAdmin {
-		tabCount = 4
+		tabCount = 5
 	}
 	for i := 0; i < tabCount; i++ {
 		if m.zones.Get(fmt.Sprintf("tab-%d", i)).InBounds(msg) {
@@ -385,7 +391,7 @@ func (m *Model) handleClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if m.currentTab == 3 {
+	if m.currentTab == 4 {
 		end := m.tableOffset + m.maxTableRows
 		if end > len(m.users) {
 			end = len(m.users)
@@ -402,9 +408,9 @@ func (m *Model) handleClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) switchTab(idx int) {
-	maxTabs := 2
+	maxTabs := 3
 	if m.isAdmin {
-		maxTabs = 3
+		maxTabs = 4
 	}
 	if idx > maxTabs {
 		idx = 0
@@ -415,7 +421,7 @@ func (m *Model) switchTab(idx int) {
 	switch idx {
 	case 2:
 		m.state = stateLogs
-	case 3:
+	case 4:
 		m.state = stateUsers
 	default:
 		m.state = stateDashboard
@@ -473,12 +479,17 @@ func (m *Model) refreshData() {
 			m.users = users
 		}
 	}
+	if nodes, err := m.store.GetAllNodes(); err == nil {
+		m.nodes = nodes
+	}
 	m.logViewport.SetContent(strings.Join(m.engine.GetLogs(), "\n"))
 
 	listLen := len(m.sites)
 	if m.currentTab == 1 {
 		listLen = len(m.alerts)
 	} else if m.currentTab == 3 {
+		listLen = len(m.nodes)
+	} else if m.currentTab == 4 {
 		listLen = len(m.users)
 	}
 	if listLen > 0 && m.cursor >= listLen {
@@ -522,7 +533,7 @@ func (m Model) View() string {
 		kind := "monitor"
 		if m.deleteTab == 1 {
 			kind = "alert"
-		} else if m.deleteTab == 3 {
+		} else if m.deleteTab == 4 {
 			kind = "user"
 		}
 		msg := dangerStyle.Render(fmt.Sprintf("Delete %s \"%s\"?", kind, m.deleteName))
@@ -559,7 +570,7 @@ func (m Model) View() string {
 }
 
 func (m Model) viewDashboard() string {
-	tabs := []string{"Sites", "Alerts", "Logs"}
+	tabs := []string{"Sites", "Alerts", "Logs", "Nodes"}
 	if m.isAdmin {
 		tabs = append(tabs, "Users")
 	}
@@ -587,13 +598,15 @@ func (m Model) viewDashboard() string {
 	case 2:
 		content = m.viewLogsTab()
 	case 3:
+		content = m.viewNodesTab()
+	case 4:
 		if m.isAdmin {
 			content = m.viewUsersTab()
 		}
 	}
 
 	footer := subtleStyle.Render("\n[n] New  [e/Enter] Edit  [d] Delete  [p] Pause  [Space] Collapse  [Tab/Click] Switch  [q] Quit")
-	if m.currentTab == 3 {
+	if m.currentTab == 4 {
 		footer = subtleStyle.Render("\n[n] Add User  [d] Revoke  [Tab/Click] Switch  [Ctrl+L] Clear  [q] Quit")
 	}
 	s := lipgloss.NewStyle().Padding(1, 2)

@@ -25,6 +25,7 @@ type Site struct {
 	DNSServer      string
 	IgnoreTLS      bool
 	Paused         bool
+	Regions        string
 
 	FailureCount   int
 	Status         string

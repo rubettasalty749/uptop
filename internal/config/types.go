@@ -30,5 +30,6 @@ type Monitor struct {
 	DNSServer       string    `yaml:"dns_server,omitempty"`
 	IgnoreTLS       bool      `yaml:"ignore_tls,omitempty"`
 	Paused          bool      `yaml:"paused,omitempty"`
+	Regions         string    `yaml:"regions,omitempty"`
 	Monitors        []Monitor `yaml:"monitors,omitempty"`
 }

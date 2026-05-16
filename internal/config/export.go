@@ -126,6 +126,10 @@ func siteToMonitor(s models.Site, alertIDToName map[int]string) Monitor {
 	m.IgnoreTLS = s.IgnoreTLS
 	m.Paused = s.Paused
 
+	if s.Regions != "" {
+		m.Regions = s.Regions
+	}
+
 	return m
 }
 

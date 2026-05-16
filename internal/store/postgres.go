@@ -68,6 +68,7 @@ func (d *PostgresDialect) MigrationsSQL() []string {
 		"ALTER TABLE sites ADD COLUMN IF NOT EXISTS ignore_tls BOOLEAN DEFAULT FALSE",
 		"ALTER TABLE sites ADD COLUMN IF NOT EXISTS paused BOOLEAN DEFAULT FALSE",
 		"ALTER TABLE check_history ADD COLUMN IF NOT EXISTS node_id TEXT DEFAULT ''",
+		"ALTER TABLE sites ADD COLUMN IF NOT EXISTS regions TEXT DEFAULT ''",
 	}
 }
 

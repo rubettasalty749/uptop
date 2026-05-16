@@ -239,6 +239,7 @@ func monitorToSite(m Monitor, alertID, parentID int) models.Site {
 		DNSServer:      m.DNSServer,
 		IgnoreTLS:      m.IgnoreTLS,
 		Paused:         m.Paused,
+		Regions:        m.Regions,
 	}
 
 	s.ExpiryThreshold = m.ExpiryThreshold
@@ -345,6 +346,9 @@ func diffSite(existing, desired models.Site) string {
 	}
 	if existing.Paused != desired.Paused {
 		diffs = append(diffs, fmt.Sprintf("paused: %v -> %v", existing.Paused, desired.Paused))
+	}
+	if existing.Regions != desired.Regions {
+		diffs = append(diffs, fmt.Sprintf("regions: %s -> %s", existing.Regions, desired.Regions))
 	}
 	return strings.Join(diffs, ", ")
 }

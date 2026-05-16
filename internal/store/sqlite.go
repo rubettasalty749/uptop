@@ -68,6 +68,7 @@ func (d *SQLiteDialect) MigrationsSQL() []string {
 		"ALTER TABLE sites ADD COLUMN ignore_tls BOOLEAN DEFAULT 0",
 		"ALTER TABLE sites ADD COLUMN paused BOOLEAN DEFAULT 0",
 		"ALTER TABLE check_history ADD COLUMN node_id TEXT DEFAULT ''",
+		"ALTER TABLE sites ADD COLUMN regions TEXT DEFAULT ''",
 	}
 }
 

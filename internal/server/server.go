@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"strings"
 )
 
 var statusTpl = template.Must(template.New("status").Parse(`
@@ -283,11 +284,30 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) {
 			http.Error(w, "Unauthorized", 401)
 			return
 		}
+		nodeID := r.URL.Query().Get("node_id")
+		var nodeRegion string
+		if nodeID != "" {
+			if node, err := s.GetNode(nodeID); err == nil {
+				nodeRegion = node.Region
+			}
+		}
 		sites := eng.GetAllSites()
 		var assigned []models.Site
 		for _, site := range sites {
 			if site.Paused || site.Type == "push" || site.Type == "group" {
 				continue
+			}
+			if site.Regions != "" && nodeRegion != "" {
+				matched := false
+				for _, r := range strings.Split(site.Regions, ",") {
+					if strings.TrimSpace(r) == nodeRegion {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					continue
+				}
 			}
 			assigned = append(assigned, site)
 		}
