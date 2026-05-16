@@ -37,6 +37,7 @@ const (
 	stateDashboard sessionState = iota
 	stateLogs
 	stateUsers
+	stateDetail
 	stateFormSite
 	stateFormAlert
 	stateFormUser
@@ -247,6 +248,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch m.state {
+		case stateDetail:
+			switch msg.String() {
+			case "i", "esc":
+				m.state = stateDashboard
+			case "q":
+				return m, tea.Quit
+			}
+			return m, nil
 		case stateDashboard, stateLogs, stateUsers:
 			switch msg.String() {
 			case "q":
@@ -329,6 +338,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					site.Paused = !site.Paused
 					_ = m.store.UpdateSitePaused(site.ID, site.Paused)
 					m.refreshData()
+				}
+			case "i":
+				if m.currentTab == 0 && len(m.sites) > 0 {
+					m.state = stateDetail
 				}
 			case "d", "backspace":
 				if m.currentTab == 0 && len(m.sites) > 0 {
@@ -538,7 +551,12 @@ func (m Model) View() string {
 		}
 		msg := dangerStyle.Render(fmt.Sprintf("Delete %s \"%s\"?", kind, m.deleteName))
 		hint := subtleStyle.Render("[y] Confirm  [n] Cancel")
-		return lipgloss.NewStyle().Padding(2, 4).Render(msg + "\n\n" + hint)
+		box := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#F25D94")).
+			Padding(1, 3).
+			Render(msg + "\n\n" + hint)
+		return lipgloss.NewStyle().Padding(2, 4).Render(box)
 	case stateFormSite, stateFormAlert, stateFormUser:
 		if m.huhForm != nil {
 			title := ""
@@ -564,13 +582,45 @@ func (m Model) View() string {
 			return lipgloss.NewStyle().Padding(1, 2).Render(header + "\n\n" + m.huhForm.View() + "\n" + footer)
 		}
 		return ""
+	case stateDetail:
+		return m.viewDetailPanel()
 	default:
 		return m.zones.Scan(m.viewDashboard())
 	}
 }
 
 func (m Model) viewDashboard() string {
-	tabs := []string{"Sites", "Alerts", "Logs", "Nodes"}
+	downCount := 0
+	for _, s := range m.sites {
+		if !s.Paused && (s.Status == "DOWN" || s.Status == "SSL EXP") {
+			downCount++
+		}
+	}
+	offlineNodes := 0
+	for _, n := range m.nodes {
+		if !n.LastSeen.IsZero() && time.Since(n.LastSeen) > 5*time.Minute {
+			offlineNodes++
+		}
+	}
+
+	var sitesLabel string
+	if downCount > 0 {
+		sitesLabel = fmt.Sprintf("Sites (%d↓)", downCount)
+	} else if len(m.sites) > 0 {
+		sitesLabel = fmt.Sprintf("Sites (%d)", len(m.sites))
+	} else {
+		sitesLabel = "Sites"
+	}
+	var nodesLabel string
+	if offlineNodes > 0 {
+		nodesLabel = fmt.Sprintf("Nodes (%d!)", offlineNodes)
+	} else if len(m.nodes) > 0 {
+		nodesLabel = fmt.Sprintf("Nodes (%d)", len(m.nodes))
+	} else {
+		nodesLabel = "Nodes"
+	}
+
+	tabs := []string{sitesLabel, "Alerts", "Logs", nodesLabel}
 	if m.isAdmin {
 		tabs = append(tabs, "Users")
 	}
@@ -605,10 +655,35 @@ func (m Model) viewDashboard() string {
 		}
 	}
 
-	footer := subtleStyle.Render("\n[n] New  [e/Enter] Edit  [d] Delete  [p] Pause  [Space] Collapse  [Tab/Click] Switch  [q] Quit")
-	if m.currentTab == 4 {
-		footer = subtleStyle.Render("\n[n] Add User  [d] Revoke  [Tab/Click] Switch  [Ctrl+L] Clear  [q] Quit")
+	upCount := len(m.sites) - downCount
+	var upStr string
+	if downCount > 0 {
+		upStr = dangerStyle.Render(fmt.Sprintf("%d/%d UP", upCount, len(m.sites)))
+	} else {
+		upStr = specialStyle.Render(fmt.Sprintf("%d/%d UP", upCount, len(m.sites)))
 	}
+	statusParts := []string{upStr}
+	if len(m.nodes) > 0 {
+		online := 0
+		for _, n := range m.nodes {
+			if !n.LastSeen.IsZero() && time.Since(n.LastSeen) < 60*time.Second {
+				online++
+			}
+		}
+		statusParts = append(statusParts, fmt.Sprintf("%d probes", online))
+	}
+	statusLine := strings.Join(statusParts, subtleStyle.Render(" · "))
+
+	var keys string
+	switch m.currentTab {
+	case 0:
+		keys = "[n]New [e]Edit [i]Info [d]Del [p]Pause [Tab]Switch [q]Quit"
+	case 4:
+		keys = "[n]Add [d]Revoke [Tab]Switch [q]Quit"
+	default:
+		keys = "[Tab]Switch [q]Quit"
+	}
+	footer := "\n" + statusLine + "  " + subtleStyle.Render(keys)
 	s := lipgloss.NewStyle().Padding(1, 2)
 	if m.termHeight > 0 {
 		s = s.MaxHeight(m.termHeight)

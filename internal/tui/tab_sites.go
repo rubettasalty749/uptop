@@ -195,11 +195,31 @@ func fmtStatus(status string, paused bool) string {
 	}
 }
 
+func (m Model) nameWidth() int {
+	w := m.termWidth - 105
+	if w < 13 {
+		w = 13
+	}
+	if w > 40 {
+		w = 40
+	}
+	return w
+}
+
 func (m Model) viewSitesTab() string {
 	const sparkWidth = 20
 
 	if len(m.sites) == 0 {
-		return "\n  No sites configured. Press [n] to add one."
+		welcome := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#7D56F4")).
+			Padding(1, 3).
+			Render(
+				titleStyle.Render("Go-Upkeep") + "\n\n" +
+					"No monitors configured yet.\n\n" +
+					subtleStyle.Render("[n] Add your first monitor"),
+			)
+		return "\n" + welcome
 	}
 
 	colWidths := []int{6, 0, 10, 10, 8, 8, sparkWidth + 4, 7, 9}
@@ -222,7 +242,7 @@ func (m Model) viewSitesTab() string {
 					}
 					rows = append(rows, []string{
 						strconv.Itoa(i + 1),
-						m.zones.Mark(fmt.Sprintf("site-%d", i), arrow+" "+limitStr(site.Name, 11)),
+						m.zones.Mark(fmt.Sprintf("site-%d", i), arrow+" "+limitStr(site.Name, m.nameWidth()-2)),
 						"group",
 						fmtStatus(site.Status, site.Paused),
 						subtleStyle.Render("—"),
@@ -240,9 +260,9 @@ func (m Model) viewSitesTab() string {
 					if i+1 >= len(m.sites) || m.sites[i+1].ParentID != site.ParentID {
 						prefix = "└"
 					}
-					name = prefix + " " + limitStr(name, 11)
+					name = prefix + " " + limitStr(name, m.nameWidth()-2)
 				} else {
-					name = limitStr(name, 13)
+					name = limitStr(name, m.nameWidth())
 				}
 
 				hist, _ := m.engine.GetHistory(site.ID)
@@ -549,4 +569,86 @@ func (m *Model) submitSiteForm() {
 		}
 	}
 	m.state = stateDashboard
+}
+
+func (m Model) viewDetailPanel() string {
+	if m.cursor >= len(m.sites) {
+		return ""
+	}
+	site := m.sites[m.cursor]
+	hist, _ := m.engine.GetHistory(site.ID)
+
+	var b strings.Builder
+
+	title := titleStyle.Render(fmt.Sprintf("  %s", site.Name))
+	b.WriteString(title + "\n\n")
+
+	row := func(label, value string) {
+		b.WriteString(fmt.Sprintf("  %-16s %s\n", subtleStyle.Render(label), value))
+	}
+
+	row("Status", fmtStatus(site.Status, site.Paused))
+	row("Type", site.Type)
+	if site.URL != "" {
+		row("URL", site.URL)
+	}
+	if site.Hostname != "" {
+		row("Host", site.Hostname)
+	}
+	if site.Port > 0 {
+		row("Port", strconv.Itoa(site.Port))
+	}
+	row("Interval", fmt.Sprintf("%ds", site.Interval))
+	row("Timeout", fmt.Sprintf("%ds", site.Timeout))
+	row("Latency", fmtLatency(site.Latency))
+	row("Uptime", fmtUptime(hist.TotalChecks, hist.UpChecks))
+
+	if site.Type == "http" {
+		row("Method", site.Method)
+		row("Codes", site.AcceptedCodes)
+		row("SSL", fmtSSL(site))
+		if site.IgnoreTLS {
+			row("TLS Verify", dangerStyle.Render("disabled"))
+		}
+	}
+
+	if site.MaxRetries > 0 {
+		row("Retries", fmtRetries(site))
+	}
+	if site.Regions != "" {
+		row("Regions", site.Regions)
+	}
+	if site.Description != "" {
+		row("Description", site.Description)
+	}
+	if !site.LastCheck.IsZero() {
+		row("Last Check", site.LastCheck.Format("15:04:05"))
+	}
+
+	probeResults := m.engine.GetProbeResults(site.ID)
+	if len(probeResults) > 0 {
+		b.WriteString("\n" + subtleStyle.Render("  PROBE RESULTS") + "\n")
+		for nodeID, result := range probeResults {
+			status := specialStyle.Render("UP")
+			if !result.IsUp {
+				status = dangerStyle.Render("DN")
+			}
+			latency := time.Duration(result.LatencyNs).Milliseconds()
+			ago := time.Since(result.CheckedAt).Truncate(time.Second)
+			b.WriteString(fmt.Sprintf("  %-14s %s  %dms  %s ago\n", nodeID, status, latency, ago))
+		}
+	}
+
+	b.WriteString("\n")
+	const sparkWidth = 40
+	if site.Type == "push" {
+		b.WriteString("  " + heartbeatSparkline(hist.Statuses, sparkWidth))
+	} else {
+		b.WriteString("  " + latencySparkline(hist.Latencies, sparkWidth))
+	}
+
+	b.WriteString("\n\n")
+	b.WriteString(subtleStyle.Render("  [i/Esc] Back  [e] Edit  [q] Quit"))
+
+	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
 }
