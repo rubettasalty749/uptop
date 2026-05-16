@@ -325,6 +325,7 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) {
 			if err := s.SaveCheckFromNode(result.SiteID, req.NodeID, result.LatencyNs, result.IsUp); err != nil {
 				log.Printf("Failed to save probe result: %v", err)
 			}
+			eng.IngestProbeResult(req.NodeID, result.SiteID, result.LatencyNs, result.IsUp)
 		}
 		s.UpdateNodeLastSeen(req.NodeID)
 		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
