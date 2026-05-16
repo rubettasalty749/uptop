@@ -193,6 +193,16 @@ func (e *Engine) Start(ctx context.Context) {
 					if s.Type == "push" {
 						s.LastCheck = time.Now()
 					}
+					if h, ok := e.GetHistory(s.ID); ok && len(h.Statuses) > 0 {
+						if h.Statuses[len(h.Statuses)-1] {
+							s.Status = "UP"
+						} else {
+							s.Status = "DOWN"
+						}
+						if len(h.Latencies) > 0 {
+							s.Latency = h.Latencies[len(h.Latencies)-1]
+						}
+					}
 					e.liveState[s.ID] = s
 					e.addToTokenIndex(s)
 					e.mu.Unlock()
