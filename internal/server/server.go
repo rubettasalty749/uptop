@@ -35,6 +35,7 @@ var statusTpl = template.Must(template.New("status").Parse(`
 		.PENDING { background: #e0af68; color: #1a1b26; }
 		.SSL-EXP { background: #e0af68; color: #1a1b26; }
 		.PAUSED { background: #565f89; color: #c0caf5; }
+		.MAINT { background: #bb9af7; color: #1a1b26; }
 		.summary { display: flex; justify-content: center; gap: 16px; margin-bottom: 24px; font-size: 0.95em; font-weight: 600; }
 		.summary span { padding: 4px 12px; border-radius: 6px; }
 		.summary .s-up { color: #9ece6a; }
@@ -68,15 +69,17 @@ var statusTpl = template.Must(template.New("status").Parse(`
 		}
 
 		function renderSummary(sites) {
-			var up = 0, down = 0, paused = 0, total = sites.length;
+			var up = 0, down = 0, paused = 0, maint = 0, total = sites.length;
 			for (var i = 0; i < sites.length; i++) {
 				if (sites[i].Paused) { paused++; continue; }
+				if (sites[i].Status === 'MAINT') { maint++; continue; }
 				if (sites[i].Status === 'UP') up++;
 				else if (sites[i].Status === 'DOWN') down++;
 			}
 			var el = document.getElementById('summary');
 			var parts = ['<span class="s-total">' + up + '/' + total + ' UP</span>'];
 			if (down > 0) parts.push('<span class="s-down">' + down + ' DOWN</span>');
+			if (maint > 0) parts.push('<span style="color:#bb9af7">' + maint + ' MAINT</span>');
 			if (paused > 0) parts.push('<span class="s-paused">' + paused + ' PAUSED</span>');
 			el.innerHTML = parts.join('<span style="color:#383838">·</span>');
 		}
@@ -110,7 +113,7 @@ var statusTpl = template.Must(template.New("status").Parse(`
 			renderSummary(sites);
 			for (var i = 0; i < sites.length; i++) {
 				var s = sites[i];
-				var st = s.Paused ? 'PAUSED' : s.Status;
+				var st = s.Status === 'MAINT' ? 'MAINT' : s.Paused ? 'PAUSED' : s.Status;
 				var cls = cssClass(st);
 				var meta = esc(s.Type) + ' | ' + (s.Type === 'http' ? esc(s.URL) : 'Heartbeat Monitor');
 				var lc = s.LastCheck ? new Date(s.LastCheck).toLocaleTimeString('en-GB', {hour12: false}) : '—';
@@ -359,8 +362,24 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) {
 		mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) { renderStatusPage(w, cfg.Title, eng) })
 		mux.HandleFunc("/status/json", func(w http.ResponseWriter, r *http.Request) {
 			state := eng.GetLiveState()
+			activeWindows, _ := s.GetActiveMaintenanceWindows()
+			maintSet := make(map[int]bool)
+			allInMaint := false
+			for _, mw := range activeWindows {
+				if mw.Type != "maintenance" {
+					continue
+				}
+				if mw.MonitorID == 0 {
+					allInMaint = true
+				} else {
+					maintSet[mw.MonitorID] = true
+				}
+			}
 			for id, site := range state {
 				site.Token = ""
+				if allInMaint || maintSet[site.ID] || (site.ParentID > 0 && maintSet[site.ParentID]) {
+					site.Status = "MAINT"
+				}
 				state[id] = site
 			}
 			w.Header().Set("Content-Type", "application/json")

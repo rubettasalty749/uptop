@@ -56,6 +56,17 @@ func (d *PostgresDialect) CreateTablesSQL() []string {
 			message TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT NOW()
 		)`,
+		`CREATE TABLE IF NOT EXISTS maintenance_windows (
+			id SERIAL PRIMARY KEY,
+			monitor_id INTEGER DEFAULT 0,
+			title TEXT NOT NULL,
+			description TEXT DEFAULT '',
+			type TEXT DEFAULT 'maintenance',
+			start_time TIMESTAMP NOT NULL,
+			end_time TIMESTAMP,
+			created_by TEXT DEFAULT '',
+			created_at TIMESTAMP DEFAULT NOW()
+		)`,
 	}
 }
 
@@ -87,10 +98,12 @@ func (d *PostgresDialect) ImportWipe(tx *sql.Tx) {
 	tx.Exec("TRUNCATE TABLE sites RESTART IDENTITY CASCADE")
 	tx.Exec("TRUNCATE TABLE alerts RESTART IDENTITY CASCADE")
 	tx.Exec("TRUNCATE TABLE users RESTART IDENTITY CASCADE")
+	tx.Exec("TRUNCATE TABLE maintenance_windows RESTART IDENTITY CASCADE")
 }
 
 func (d *PostgresDialect) ImportResetSequences(tx *sql.Tx) {
 	tx.Exec("SELECT setval('sites_id_seq', (SELECT COALESCE(MAX(id), 1) FROM sites))")
 	tx.Exec("SELECT setval('alerts_id_seq', (SELECT COALESCE(MAX(id), 1) FROM alerts))")
 	tx.Exec("SELECT setval('users_id_seq', (SELECT COALESCE(MAX(id), 1) FROM users))")
+	tx.Exec("SELECT setval('maintenance_windows_id_seq', (SELECT COALESCE(MAX(id), 1) FROM maintenance_windows))")
 }

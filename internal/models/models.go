@@ -67,8 +67,21 @@ type ProbeNode struct {
 	Version  string
 }
 
+type MaintenanceWindow struct {
+	ID          int
+	MonitorID   int
+	Title       string
+	Description string
+	Type        string // "maintenance" or "incident"
+	StartTime   time.Time
+	EndTime     time.Time // zero = ongoing
+	CreatedBy   string
+	CreatedAt   time.Time
+}
+
 type Backup struct {
-	Sites  []Site        `json:"sites"`
-	Alerts []AlertConfig `json:"alerts"`
-	Users  []User        `json:"users"`
+	Sites              []Site              `json:"sites"`
+	Alerts             []AlertConfig       `json:"alerts"`
+	Users              []User              `json:"users"`
+	MaintenanceWindows []MaintenanceWindow `json:"maintenance_windows,omitempty"`
 }

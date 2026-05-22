@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"go-upkeep/internal/models"
+	"time"
 )
 
 type SQLStore struct {
@@ -356,6 +357,90 @@ func (s *SQLStore) LoadAllHistory(limit int) (map[int][]models.CheckRecord, erro
 	return result, rows.Err()
 }
 
+func (s *SQLStore) scanMaintenanceWindow(rows *sql.Rows) (models.MaintenanceWindow, error) {
+	var mw models.MaintenanceWindow
+	var endTime sql.NullTime
+	if err := rows.Scan(&mw.ID, &mw.MonitorID, &mw.Title, &mw.Description, &mw.Type, &mw.StartTime, &endTime, &mw.CreatedBy, &mw.CreatedAt); err != nil {
+		return mw, err
+	}
+	if endTime.Valid {
+		mw.EndTime = endTime.Time
+	}
+	return mw, nil
+}
+
+func (s *SQLStore) GetActiveMaintenanceWindows() ([]models.MaintenanceWindow, error) {
+	rows, err := s.db.Query(s.q("SELECT id, monitor_id, title, description, type, start_time, end_time, created_by, created_at FROM maintenance_windows WHERE start_time <= CURRENT_TIMESTAMP AND (end_time IS NULL OR end_time > CURRENT_TIMESTAMP) ORDER BY start_time DESC"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var windows []models.MaintenanceWindow
+	for rows.Next() {
+		mw, err := s.scanMaintenanceWindow(rows)
+		if err != nil {
+			return windows, err
+		}
+		windows = append(windows, mw)
+	}
+	return windows, rows.Err()
+}
+
+func (s *SQLStore) GetAllMaintenanceWindows(limit int) ([]models.MaintenanceWindow, error) {
+	rows, err := s.db.Query(s.q("SELECT id, monitor_id, title, description, type, start_time, end_time, created_by, created_at FROM maintenance_windows ORDER BY created_at DESC LIMIT ?"), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var windows []models.MaintenanceWindow
+	for rows.Next() {
+		mw, err := s.scanMaintenanceWindow(rows)
+		if err != nil {
+			return windows, err
+		}
+		windows = append(windows, mw)
+	}
+	return windows, rows.Err()
+}
+
+func (s *SQLStore) AddMaintenanceWindow(mw models.MaintenanceWindow) error {
+	if mw.StartTime.IsZero() {
+		mw.StartTime = time.Now()
+	}
+	_, err := s.db.Exec(s.q("INSERT INTO maintenance_windows (monitor_id, title, description, type, start_time, end_time, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)"),
+		mw.MonitorID, mw.Title, mw.Description, mw.Type, mw.StartTime, sql.NullTime{Time: mw.EndTime, Valid: !mw.EndTime.IsZero()}, mw.CreatedBy)
+	return err
+}
+
+func (s *SQLStore) EndMaintenanceWindow(id int) error {
+	_, err := s.db.Exec(s.q("UPDATE maintenance_windows SET end_time = CURRENT_TIMESTAMP WHERE id = ?"), id)
+	return err
+}
+
+func (s *SQLStore) DeleteMaintenanceWindow(id int) error {
+	_, err := s.db.Exec(s.q("DELETE FROM maintenance_windows WHERE id = ?"), id)
+	if err != nil {
+		return err
+	}
+	s.dialect.ResetSequenceOnEmpty(s.db, "maintenance_windows")
+	return nil
+}
+
+func (s *SQLStore) IsMonitorInMaintenance(monitorID int) (bool, error) {
+	var count int
+	err := s.db.QueryRow(s.q(`SELECT COUNT(*) FROM maintenance_windows
+		WHERE type = 'maintenance'
+		AND start_time <= CURRENT_TIMESTAMP
+		AND (end_time IS NULL OR end_time > CURRENT_TIMESTAMP)
+		AND (monitor_id = 0 OR monitor_id = ?
+			OR monitor_id IN (SELECT parent_id FROM sites WHERE id = ? AND parent_id > 0))`),
+		monitorID, monitorID).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (s *SQLStore) ExportData() (models.Backup, error) {
 	sites, err := s.GetSites()
 	if err != nil {
@@ -369,7 +454,11 @@ func (s *SQLStore) ExportData() (models.Backup, error) {
 	if err != nil {
 		return models.Backup{}, err
 	}
-	return models.Backup{Sites: sites, Alerts: alerts, Users: users}, nil
+	windows, err := s.GetAllMaintenanceWindows(1000)
+	if err != nil {
+		return models.Backup{}, err
+	}
+	return models.Backup{Sites: sites, Alerts: alerts, Users: users, MaintenanceWindows: windows}, nil
 }
 
 func (s *SQLStore) ImportData(data models.Backup) error {
@@ -399,6 +488,13 @@ func (s *SQLStore) ImportData(data models.Backup) error {
 		if _, err := tx.Exec(s.q("INSERT INTO sites (id, name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries, hostname, port, timeout, method, description, parent_id, accepted_codes, dns_resolve_type, dns_server, ignore_tls, paused, regions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
 			st.ID, st.Name, st.URL, st.Type, st.Token, st.Interval, st.AlertID, st.CheckSSL, st.ExpiryThreshold, st.MaxRetries,
 			st.Hostname, st.Port, st.Timeout, st.Method, st.Description, st.ParentID, st.AcceptedCodes, st.DNSResolveType, st.DNSServer, st.IgnoreTLS, st.Paused, st.Regions); err != nil {
+			return err
+		}
+	}
+
+	for _, mw := range data.MaintenanceWindows {
+		if _, err := tx.Exec(s.q("INSERT INTO maintenance_windows (id, monitor_id, title, description, type, start_time, end_time, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
+			mw.ID, mw.MonitorID, mw.Title, mw.Description, mw.Type, mw.StartTime, sql.NullTime{Time: mw.EndTime, Valid: !mw.EndTime.IsZero()}, mw.CreatedBy); err != nil {
 			return err
 		}
 	}

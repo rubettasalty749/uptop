@@ -385,10 +385,16 @@ func (e *Engine) handleStatusChange(site models.Site, rawStatus string, code int
 		newState.FailureCount = site.MaxRetries + 1
 	}
 
+	inMaint := e.isInMaintenance(site.ID)
+
 	if site.Type == "http" && site.CheckSSL && site.HasSSL {
 		daysLeft := int(time.Until(site.CertExpiry).Hours() / 24)
 		if daysLeft <= site.ExpiryThreshold && !site.SentSSLWarning && rawStatus != "SSL EXP" {
-			e.triggerAlert(site.AlertID, "SSL WARNING", fmt.Sprintf("SSL for '%s' expires in %d days", site.Name, daysLeft))
+			if !inMaint {
+				e.triggerAlert(site.AlertID, "SSL WARNING", fmt.Sprintf("SSL for '%s' expires in %d days", site.Name, daysLeft))
+			} else {
+				e.AddLog(fmt.Sprintf("SSL warning for '%s' suppressed (maintenance)", site.Name))
+			}
 			newState.SentSSLWarning = true
 		} else if daysLeft > site.ExpiryThreshold {
 			newState.SentSSLWarning = false
@@ -405,14 +411,22 @@ func (e *Engine) handleStatusChange(site models.Site, rawStatus string, code int
 
 	isBroken := func(s string) bool { return s == "DOWN" || s == "SSL EXP" }
 	if !isBroken(site.Status) && isBroken(newState.Status) && newState.Status != "PENDING" {
-		msg := fmt.Sprintf("Monitor '%s' is DOWN (%s)", site.Name, rawStatus)
-		if site.Type == "push" {
-			msg = fmt.Sprintf("Push Monitor '%s' missed heartbeat.", site.Name)
+		if inMaint {
+			e.AddLog(fmt.Sprintf("Monitor '%s' is DOWN (alerts suppressed — maintenance)", site.Name))
+		} else {
+			msg := fmt.Sprintf("Monitor '%s' is DOWN (%s)", site.Name, rawStatus)
+			if site.Type == "push" {
+				msg = fmt.Sprintf("Push Monitor '%s' missed heartbeat.", site.Name)
+			}
+			e.triggerAlert(site.AlertID, "🚨 ALERT", msg)
 		}
-		e.triggerAlert(site.AlertID, "🚨 ALERT", msg)
 	}
 	if isBroken(site.Status) && newState.Status == "UP" {
-		e.triggerAlert(site.AlertID, "✅ RECOVERY", fmt.Sprintf("Monitor '%s' is UP", site.Name))
+		if !inMaint {
+			e.triggerAlert(site.AlertID, "✅ RECOVERY", fmt.Sprintf("Monitor '%s' is UP", site.Name))
+		} else {
+			e.AddLog(fmt.Sprintf("Monitor '%s' recovered (maintenance active, alert suppressed)", site.Name))
+		}
 	}
 }
 
@@ -430,6 +444,24 @@ func (e *Engine) triggerAlert(alertID int, title, message string) {
 			_ = provider.Send(title, message)
 		}()
 	}
+}
+
+func (e *Engine) isInMaintenance(monitorID int) bool {
+	inMaint, err := e.db.IsMonitorInMaintenance(monitorID)
+	if err != nil {
+		return false
+	}
+	return inMaint
+}
+
+func (e *Engine) GetDisplayStatus(site models.Site) string {
+	if site.Paused {
+		return "PAUSED"
+	}
+	if e.isInMaintenance(site.ID) {
+		return "MAINT"
+	}
+	return site.Status
 }
 
 func (e *Engine) checkGroup(site models.Site) {

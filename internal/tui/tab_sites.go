@@ -207,9 +207,12 @@ func fmtRetries(site models.Site) string {
 	return s
 }
 
-func fmtStatus(status string, paused bool) string {
+func fmtStatus(status string, paused bool, inMaint bool) string {
 	if paused {
 		return warnStyle.Render("PAUSED")
+	}
+	if inMaint {
+		return maintStyle.Render("MAINT")
 	}
 	switch {
 	case status == "DOWN" || status == "SSL EXP":
@@ -280,7 +283,7 @@ func (m Model) viewSitesTab() string {
 						strconv.Itoa(i + 1),
 						m.zones.Mark(fmt.Sprintf("site-%d", i), icon+" "+limitStr(site.Name, nameW-2)),
 						"group",
-						fmtStatus(site.Status, site.Paused),
+						fmtStatus(site.Status, site.Paused, m.isMonitorInMaintenance(site.ID)),
 						subtleStyle.Render("—"),
 						subtleStyle.Render("—"),
 						subtleStyle.Render(strings.Repeat("·", sparkWidth)),
@@ -313,7 +316,7 @@ func (m Model) viewSitesTab() string {
 					strconv.Itoa(i + 1),
 					m.zones.Mark(fmt.Sprintf("site-%d", i), name),
 					typeIcon(site.Type, false) + " " + site.Type,
-					fmtStatus(site.Status, site.Paused),
+					fmtStatus(site.Status, site.Paused, m.isMonitorInMaintenance(site.ID)),
 					fmtLatency(site.Latency),
 					fmtUptime(hist.Statuses),
 					spark,
@@ -623,7 +626,15 @@ func (m Model) viewDetailPanel() string {
 		b.WriteString(fmt.Sprintf("  %-16s %s\n", subtleStyle.Render(label), value))
 	}
 
-	row("Status", fmtStatus(site.Status, site.Paused))
+	row("Status", fmtStatus(site.Status, site.Paused, m.isMonitorInMaintenance(site.ID)))
+	if m.isMonitorInMaintenance(site.ID) {
+		for _, mw := range m.maintenanceWindows {
+			if mw.Type == "maintenance" && (mw.MonitorID == 0 || mw.MonitorID == site.ID || mw.MonitorID == site.ParentID) {
+				row("Maintenance", maintStyle.Render(mw.Title))
+				break
+			}
+		}
+	}
 	row("Type", site.Type)
 	if site.URL != "" {
 		row("URL", site.URL)

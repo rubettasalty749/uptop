@@ -52,6 +52,16 @@ func (m *mockStore) UpdateNodeLastSeen(string) error                  { return n
 func (m *mockStore) DeleteNode(string) error                          { return nil }
 func (m *mockStore) SaveLog(string) error                             { return nil }
 func (m *mockStore) LoadLogs(int) ([]string, error)                   { return nil, nil }
+func (m *mockStore) GetActiveMaintenanceWindows() ([]models.MaintenanceWindow, error) {
+	return nil, nil
+}
+func (m *mockStore) GetAllMaintenanceWindows(int) ([]models.MaintenanceWindow, error) {
+	return nil, nil
+}
+func (m *mockStore) AddMaintenanceWindow(models.MaintenanceWindow) error { return nil }
+func (m *mockStore) EndMaintenanceWindow(int) error                      { return nil }
+func (m *mockStore) DeleteMaintenanceWindow(int) error                   { return nil }
+func (m *mockStore) IsMonitorInMaintenance(int) (bool, error)            { return false, nil }
 
 func TestMetricsHandler(t *testing.T) {
 	ms := &mockStore{
