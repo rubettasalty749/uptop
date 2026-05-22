@@ -652,7 +652,7 @@ func (m Model) pulseIndicator() string {
 	}
 	hasDown := false
 	for _, s := range m.sites {
-		if !s.Paused && (s.Status == "DOWN" || s.Status == "SSL EXP") {
+		if !s.Paused && !m.isMonitorInMaintenance(s.ID) && (s.Status == "DOWN" || s.Status == "SSL EXP") {
 			hasDown = true
 			break
 		}
@@ -727,7 +727,7 @@ func (m Model) View() string {
 func (m Model) viewDashboard() string {
 	downCount := 0
 	for _, s := range m.sites {
-		if !s.Paused && (s.Status == "DOWN" || s.Status == "SSL EXP") {
+		if !s.Paused && !m.isMonitorInMaintenance(s.ID) && (s.Status == "DOWN" || s.Status == "SSL EXP") {
 			downCount++
 		}
 	}
