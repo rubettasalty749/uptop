@@ -161,6 +161,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Form state: forward ALL messages to huh (keys, timers, resize, etc.)
 	if m.state == stateFormSite || m.state == stateFormAlert || m.state == stateFormUser || m.state == stateFormMaint {
+		if wsm, ok := msg.(tea.WindowSizeMsg); ok {
+			m.termWidth = wsm.Width
+			m.termHeight = wsm.Height
+		}
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			if keyMsg.String() == "ctrl+c" {
 				return m, tea.Quit
@@ -703,6 +707,11 @@ func (m Model) View() string {
 			case stateFormMaint:
 				title = "New Maintenance Window"
 			}
+			formHeight := m.termHeight - 7
+			if formHeight < 5 {
+				formHeight = 5
+			}
+			m.huhForm.WithHeight(formHeight)
 			header := titleStyle.Render(title)
 			footer := subtleStyle.Render("\n[Esc] Cancel")
 			return lipgloss.NewStyle().Padding(1, 2).Render(header + "\n\n" + m.huhForm.View() + "\n" + footer)
