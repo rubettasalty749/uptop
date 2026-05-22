@@ -186,12 +186,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.termWidth = msg.Width
 		m.termHeight = msg.Height
-		m.maxTableRows = msg.Height - 12
+		// Chrome: 1 top pad + 1 tabs + 2 newlines + 3 table borders + 1 table header + 1 footer + 1 bottom pad = 10
+		chrome := 10
+		if m.filterText != "" {
+			chrome++
+		}
+		m.maxTableRows = msg.Height - chrome
 		if m.maxTableRows < 1 {
 			m.maxTableRows = 1
 		}
-		m.logViewport.Width = msg.Width
-		m.logViewport.Height = msg.Height - 6
+		m.logViewport.Width = msg.Width - 4
+		m.logViewport.Height = msg.Height - 8
 		return m, tea.ClearScreen
 
 	case time.Time:
