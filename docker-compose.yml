@@ -1,0 +1,18 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: upkeep
+    restart: unless-stopped
+    ports:
+      - "23234:23234"
+      - "8080:8080"
+    environment:
+      - UPKEEP_DB_TYPE=sqlite
+      - UPKEEP_DB_DSN=/data/upkeep.db
+      - UPKEEP_HTTP_PORT=8080
+      - UPKEEP_STATUS_ENABLED=true
+      - UPKEEP_STATUS_TITLE=System Status
+    volumes:
+      - ./data:/data
