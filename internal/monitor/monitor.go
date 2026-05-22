@@ -477,7 +477,7 @@ func (e *Engine) checkGroup(site models.Site) {
 		if !child.Paused {
 			allPaused = false
 		}
-		if child.Paused {
+		if child.Paused || e.isInMaintenance(child.ID) {
 			continue
 		}
 		if child.Status == "DOWN" || child.Status == "SSL EXP" {
