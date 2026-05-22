@@ -49,6 +49,14 @@ type Store interface {
 	SaveLog(message string) error
 	LoadLogs(limit int) ([]string, error)
 
+	// Maintenance Windows
+	GetActiveMaintenanceWindows() ([]models.MaintenanceWindow, error)
+	GetAllMaintenanceWindows(limit int) ([]models.MaintenanceWindow, error)
+	AddMaintenanceWindow(mw models.MaintenanceWindow) error
+	EndMaintenanceWindow(id int) error
+	DeleteMaintenanceWindow(id int) error
+	IsMonitorInMaintenance(monitorID int) (bool, error)
+
 	// Backup & Restore
 	ExportData() (models.Backup, error)
 	ImportData(data models.Backup) error

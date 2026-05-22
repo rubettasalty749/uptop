@@ -56,6 +56,17 @@ func (d *SQLiteDialect) CreateTablesSQL() []string {
 			message TEXT NOT NULL,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS maintenance_windows (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			monitor_id INTEGER DEFAULT 0,
+			title TEXT NOT NULL,
+			description TEXT DEFAULT '',
+			type TEXT DEFAULT 'maintenance',
+			start_time DATETIME NOT NULL,
+			end_time DATETIME,
+			created_by TEXT DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 	}
 }
 
@@ -96,6 +107,8 @@ func (d *SQLiteDialect) ImportWipe(tx *sql.Tx) {
 	tx.Exec("DELETE FROM sqlite_sequence WHERE name='alerts'")
 	tx.Exec("DELETE FROM users")
 	tx.Exec("DELETE FROM sqlite_sequence WHERE name='users'")
+	tx.Exec("DELETE FROM maintenance_windows")
+	tx.Exec("DELETE FROM sqlite_sequence WHERE name='maintenance_windows'")
 }
 
 func (d *SQLiteDialect) ImportResetSequences(tx *sql.Tx) {}

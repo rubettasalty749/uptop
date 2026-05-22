@@ -42,6 +42,7 @@ const (
 	stateFormAlert
 	stateFormUser
 	stateConfirmDelete
+	stateFormMaint
 )
 
 type Model struct {
@@ -59,6 +60,7 @@ type Model struct {
 	siteFormData  *siteFormData
 	alertFormData *alertFormData
 	userFormData  *userFormData
+	maintFormData *maintFormData
 
 	logViewport viewport.Model
 	isAdmin     bool
@@ -78,10 +80,11 @@ type Model struct {
 	pulseVel    float64
 	tickCount   int
 
-	sites  []models.Site
-	alerts []models.AlertConfig
-	users  []models.User
-	nodes  []models.ProbeNode
+	sites              []models.Site
+	alerts             []models.AlertConfig
+	users              []models.User
+	nodes              []models.ProbeNode
+	maintenanceWindows []models.MaintenanceWindow
 
 	filterMode bool
 	filterText string
@@ -128,7 +131,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.engine.AddLog("Delete alert failed: " + err.Error())
 					}
 					m.adjustCursor(len(m.alerts) - 1)
-				case 3:
+				case 4:
+					if err := m.store.DeleteMaintenanceWindow(m.deleteID); err != nil {
+						m.engine.AddLog("Delete maintenance window failed: " + err.Error())
+					}
+					m.adjustCursor(len(m.maintenanceWindows) - 1)
+				case 5:
 					if err := m.store.DeleteUser(m.deleteID); err != nil {
 						m.engine.AddLog("Delete user failed: " + err.Error())
 					}
@@ -136,12 +144,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.refreshData()
 				m.state = stateDashboard
-				if m.deleteTab == 4 {
+				if m.deleteTab == 5 {
 					m.state = stateUsers
 				}
 			case "n", "N", "esc":
 				m.state = stateDashboard
-				if m.deleteTab == 4 {
+				if m.deleteTab == 5 {
 					m.state = stateUsers
 				}
 			case "ctrl+c":
@@ -152,7 +160,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Form state: forward ALL messages to huh (keys, timers, resize, etc.)
-	if m.state == stateFormSite || m.state == stateFormAlert || m.state == stateFormUser {
+	if m.state == stateFormSite || m.state == stateFormAlert || m.state == stateFormUser || m.state == stateFormMaint {
+		if wsm, ok := msg.(tea.WindowSizeMsg); ok {
+			m.termWidth = wsm.Width
+			m.termHeight = wsm.Height
+		}
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			if keyMsg.String() == "ctrl+c" {
 				return m, tea.Quit
@@ -160,7 +172,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if keyMsg.String() == "esc" {
 				m.huhForm = nil
 				m.state = stateDashboard
-				if m.currentTab == 4 {
+				if m.currentTab == 5 {
 					m.state = stateUsers
 				}
 				return m, nil
@@ -226,6 +238,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if m.currentTab == 3 {
 					listLen = len(m.nodes)
 				} else if m.currentTab == 4 {
+					listLen = len(m.maintenanceWindows)
+				} else if m.currentTab == 5 {
 					listLen = len(m.users)
 				}
 				if msg.Button == tea.MouseButtonWheelUp {
@@ -331,6 +345,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						max = len(m.nodes) - 1
 					}
 					if m.currentTab == 4 {
+						max = len(m.maintenanceWindows) - 1
+					}
+					if m.currentTab == 5 {
 						max = len(m.users) - 1
 					}
 					if m.cursor < max {
@@ -349,7 +366,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if m.currentTab == 1 {
 					m.state = stateFormAlert
 					return m, m.initAlertHuhForm()
-				} else if m.currentTab == 4 && m.isAdmin {
+				} else if m.currentTab == 4 {
+					m.state = stateFormMaint
+					return m, m.initMaintHuhForm()
+				} else if m.currentTab == 5 && m.isAdmin {
 					m.state = stateFormUser
 					return m, m.initUserHuhForm()
 				}
@@ -363,7 +383,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.editID = m.alerts[m.cursor].ID
 					m.state = stateFormAlert
 					return m, m.initAlertHuhForm()
-				} else if m.currentTab == 4 && m.isAdmin && len(m.users) > 0 {
+				} else if m.currentTab == 5 && m.isAdmin && len(m.users) > 0 {
 					m.editID = m.users[m.cursor].ID
 					m.state = stateFormUser
 					return m, m.initUserHuhForm()
@@ -386,6 +406,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.currentTab == 0 && len(m.sites) > 0 {
 					m.state = stateDetail
 				}
+			case "x":
+				if m.currentTab == 4 && len(m.maintenanceWindows) > 0 {
+					mw := m.maintenanceWindows[m.cursor]
+					now := time.Now()
+					isActive := !mw.StartTime.After(now) && (mw.EndTime.IsZero() || mw.EndTime.After(now))
+					if isActive {
+						if err := m.store.EndMaintenanceWindow(mw.ID); err != nil {
+							m.engine.AddLog("End maintenance failed: " + err.Error())
+						}
+						m.refreshData()
+					}
+				}
 			case "d", "backspace":
 				if m.currentTab == 0 && len(m.sites) > 0 {
 					m.deleteID = m.sites[m.cursor].ID
@@ -397,10 +429,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.deleteName = m.alerts[m.cursor].Name
 					m.deleteTab = 1
 					m.state = stateConfirmDelete
-				} else if m.currentTab == 4 && m.isAdmin && len(m.users) > 0 {
+				} else if m.currentTab == 4 && len(m.maintenanceWindows) > 0 {
+					m.deleteID = m.maintenanceWindows[m.cursor].ID
+					m.deleteName = m.maintenanceWindows[m.cursor].Title
+					m.deleteTab = 4
+					m.state = stateConfirmDelete
+				} else if m.currentTab == 5 && m.isAdmin && len(m.users) > 0 {
 					m.deleteID = m.users[m.cursor].ID
 					m.deleteName = m.users[m.cursor].Username
-					m.deleteTab = 4
+					m.deleteTab = 5
 					m.state = stateConfirmDelete
 				}
 			}
@@ -410,9 +447,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	tabCount := 4
+	tabCount := 5
 	if m.isAdmin {
-		tabCount = 5
+		tabCount = 6
 	}
 	for i := 0; i < tabCount; i++ {
 		if m.zones.Get(fmt.Sprintf("tab-%d", i)).InBounds(msg) {
@@ -449,6 +486,19 @@ func (m *Model) handleClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	if m.currentTab == 4 {
 		end := m.tableOffset + m.maxTableRows
+		if end > len(m.maintenanceWindows) {
+			end = len(m.maintenanceWindows)
+		}
+		for i := m.tableOffset; i < end; i++ {
+			if m.zones.Get(fmt.Sprintf("maint-%d", i)).InBounds(msg) {
+				m.cursor = i
+				return m, nil
+			}
+		}
+	}
+
+	if m.currentTab == 5 {
+		end := m.tableOffset + m.maxTableRows
 		if end > len(m.users) {
 			end = len(m.users)
 		}
@@ -464,9 +514,9 @@ func (m *Model) handleClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) switchTab(idx int) {
-	maxTabs := 3
+	maxTabs := 4
 	if m.isAdmin {
-		maxTabs = 4
+		maxTabs = 5
 	}
 	if idx > maxTabs {
 		idx = 0
@@ -477,7 +527,7 @@ func (m *Model) switchTab(idx int) {
 	switch idx {
 	case 2:
 		m.state = stateLogs
-	case 4:
+	case 5:
 		m.state = stateUsers
 	default:
 		m.state = stateDashboard
@@ -550,6 +600,9 @@ func (m *Model) refreshData() {
 	if nodes, err := m.store.GetAllNodes(); err == nil {
 		m.nodes = nodes
 	}
+	if windows, err := m.store.GetAllMaintenanceWindows(100); err == nil {
+		m.maintenanceWindows = windows
+	}
 	m.logViewport.SetContent(strings.Join(m.engine.GetLogs(), "\n"))
 
 	listLen := len(m.sites)
@@ -558,6 +611,8 @@ func (m *Model) refreshData() {
 	} else if m.currentTab == 3 {
 		listLen = len(m.nodes)
 	} else if m.currentTab == 4 {
+		listLen = len(m.maintenanceWindows)
+	} else if m.currentTab == 5 {
 		listLen = len(m.users)
 	}
 	if listLen > 0 && m.cursor >= listLen {
@@ -582,6 +637,10 @@ func (m *Model) submitForm() {
 		if m.userFormData != nil {
 			m.submitUserForm()
 		}
+	case stateFormMaint:
+		if m.maintFormData != nil {
+			m.submitMaintForm()
+		}
 	}
 }
 
@@ -593,7 +652,7 @@ func (m Model) pulseIndicator() string {
 	}
 	hasDown := false
 	for _, s := range m.sites {
-		if !s.Paused && (s.Status == "DOWN" || s.Status == "SSL EXP") {
+		if !s.Paused && !m.isMonitorInMaintenance(s.ID) && (s.Status == "DOWN" || s.Status == "SSL EXP") {
 			hasDown = true
 			break
 		}
@@ -614,6 +673,8 @@ func (m Model) View() string {
 		if m.deleteTab == 1 {
 			kind = "alert"
 		} else if m.deleteTab == 4 {
+			kind = "maintenance window"
+		} else if m.deleteTab == 5 {
 			kind = "user"
 		}
 		msg := dangerStyle.Render(fmt.Sprintf("Delete %s \"%s\"?", kind, m.deleteName))
@@ -624,7 +685,7 @@ func (m Model) View() string {
 			Padding(1, 3).
 			Render(msg + "\n\n" + hint)
 		return lipgloss.NewStyle().Padding(2, 4).Render(box)
-	case stateFormSite, stateFormAlert, stateFormUser:
+	case stateFormSite, stateFormAlert, stateFormUser, stateFormMaint:
 		if m.huhForm != nil {
 			title := ""
 			switch m.state {
@@ -643,7 +704,14 @@ func (m Model) View() string {
 				if m.editID > 0 {
 					title = fmt.Sprintf("Edit User #%d", m.editID)
 				}
+			case stateFormMaint:
+				title = "New Maintenance Window"
 			}
+			formHeight := m.termHeight - 7
+			if formHeight < 5 {
+				formHeight = 5
+			}
+			m.huhForm.WithHeight(formHeight)
 			header := titleStyle.Render(title)
 			footer := subtleStyle.Render("\n[Esc] Cancel")
 			return lipgloss.NewStyle().Padding(1, 2).Render(header + "\n\n" + m.huhForm.View() + "\n" + footer)
@@ -659,7 +727,7 @@ func (m Model) View() string {
 func (m Model) viewDashboard() string {
 	downCount := 0
 	for _, s := range m.sites {
-		if !s.Paused && (s.Status == "DOWN" || s.Status == "SSL EXP") {
+		if !s.Paused && !m.isMonitorInMaintenance(s.ID) && (s.Status == "DOWN" || s.Status == "SSL EXP") {
 			downCount++
 		}
 	}
@@ -687,7 +755,21 @@ func (m Model) viewDashboard() string {
 		nodesLabel = "Nodes"
 	}
 
-	tabs := []string{sitesLabel, "Alerts", "Logs", nodesLabel}
+	activeMaint := 0
+	for _, mw := range m.maintenanceWindows {
+		now := time.Now()
+		if !mw.StartTime.After(now) && (mw.EndTime.IsZero() || mw.EndTime.After(now)) {
+			activeMaint++
+		}
+	}
+	var maintLabel string
+	if activeMaint > 0 {
+		maintLabel = fmt.Sprintf("Maint (%d)", activeMaint)
+	} else {
+		maintLabel = "Maint"
+	}
+
+	tabs := []string{sitesLabel, "Alerts", "Logs", nodesLabel, maintLabel}
 	if m.isAdmin {
 		tabs = append(tabs, "Users")
 	}
@@ -717,6 +799,8 @@ func (m Model) viewDashboard() string {
 	case 3:
 		content = m.viewNodesTab()
 	case 4:
+		content = m.viewMaintTab()
+	case 5:
 		if m.isAdmin {
 			content = m.viewUsersTab()
 		}
@@ -751,6 +835,8 @@ func (m Model) viewDashboard() string {
 		case 0:
 			keys = "[/]Filter [n]New [e]Edit [i]Info [d]Del [p]Pause [Tab]Switch [q]Quit"
 		case 4:
+			keys = "[n]New [x]End [d]Del [Tab]Switch [q]Quit"
+		case 5:
 			keys = "[n]Add [d]Revoke [Tab]Switch [q]Quit"
 		default:
 			keys = "[Tab]Switch [q]Quit"

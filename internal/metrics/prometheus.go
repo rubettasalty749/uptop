@@ -55,6 +55,15 @@ func Handler(eng *monitor.Engine) http.HandlerFunc {
 			writeGauge(&b, "upkeep_monitor_paused", labels(s), float64(val))
 		}
 
+		writeHelp(&b, "upkeep_monitor_maintenance", "gauge", "Whether the monitor is in a maintenance window (1) or not (0).")
+		for _, s := range sites {
+			val := 0
+			if eng.GetDisplayStatus(s) == "MAINT" {
+				val = 1
+			}
+			writeGauge(&b, "upkeep_monitor_maintenance", labels(s), float64(val))
+		}
+
 		writeHelp(&b, "upkeep_monitor_cert_expiry_timestamp_seconds", "gauge", "Unix timestamp when the SSL certificate expires.")
 		for _, s := range sites {
 			if !s.HasSSL || s.CertExpiry.IsZero() {
