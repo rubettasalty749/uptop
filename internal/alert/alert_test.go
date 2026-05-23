@@ -1,6 +1,7 @@
 package alert
 
 import (
+	"context"
 	"encoding/json"
 	"go-upkeep/internal/models"
 	"net/http"
@@ -17,7 +18,7 @@ func TestHTTPProviderDiscord(t *testing.T) {
 	defer srv.Close()
 
 	p := GetProvider(models.AlertConfig{Type: "discord", Settings: map[string]string{"url": srv.URL}})
-	if err := p.Send("Test Title", "Test Body"); err != nil {
+	if err := p.Send(context.Background(), "Test Title", "Test Body"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 
@@ -35,7 +36,7 @@ func TestHTTPProviderSlack(t *testing.T) {
 	defer srv.Close()
 
 	p := GetProvider(models.AlertConfig{Type: "slack", Settings: map[string]string{"url": srv.URL}})
-	if err := p.Send("Alert", "Message"); err != nil {
+	if err := p.Send(context.Background(), "Alert", "Message"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 
@@ -53,7 +54,7 @@ func TestHTTPProviderWebhook(t *testing.T) {
 	defer srv.Close()
 
 	p := GetProvider(models.AlertConfig{Type: "webhook", Settings: map[string]string{"url": srv.URL}})
-	if err := p.Send("Title", "Body"); err != nil {
+	if err := p.Send(context.Background(), "Title", "Body"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 
@@ -69,7 +70,7 @@ func TestHTTPProviderErrorOnHTTP4xx(t *testing.T) {
 	defer srv.Close()
 
 	p := GetProvider(models.AlertConfig{Type: "discord", Settings: map[string]string{"url": srv.URL}})
-	if err := p.Send("Test", "Test"); err == nil {
+	if err := p.Send(context.Background(), "Test", "Test"); err == nil {
 		t.Fatal("expected error on 403 response")
 	}
 }
@@ -89,7 +90,7 @@ func TestNtfyProvider(t *testing.T) {
 		"url":   srv.URL,
 		"topic": "test",
 	}})
-	if err := p.Send("Alert Title", "Alert Body"); err != nil {
+	if err := p.Send(context.Background(), "Alert Title", "Alert Body"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 
@@ -110,7 +111,7 @@ func TestHTTPProviderTelegram(t *testing.T) {
 	defer srv.Close()
 
 	p := &HTTPProvider{URL: srv.URL, Payload: telegramPayload("12345")}
-	if err := p.Send("Alert", "Down"); err != nil {
+	if err := p.Send(context.Background(), "Alert", "Down"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	if received["chat_id"] != "12345" {
@@ -133,7 +134,7 @@ func TestHTTPProviderPagerDuty(t *testing.T) {
 	defer srv.Close()
 
 	p := &HTTPProvider{URL: srv.URL, Payload: pagerdutyPayload("test-key", "critical")}
-	if err := p.Send("Alert", "Down"); err != nil {
+	if err := p.Send(context.Background(), "Alert", "Down"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	if received["routing_key"] != "test-key" {
@@ -160,7 +161,7 @@ func TestHTTPProviderPushover(t *testing.T) {
 	defer srv.Close()
 
 	p := &HTTPProvider{URL: srv.URL, Payload: pushoverPayload("app-tok", "user-key")}
-	if err := p.Send("Alert", "Down"); err != nil {
+	if err := p.Send(context.Background(), "Alert", "Down"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	if received["token"] != "app-tok" {
@@ -183,7 +184,7 @@ func TestHTTPProviderGotify(t *testing.T) {
 	defer srv.Close()
 
 	p := &HTTPProvider{URL: srv.URL, Payload: gotifyPayload("8")}
-	if err := p.Send("Alert", "Down"); err != nil {
+	if err := p.Send(context.Background(), "Alert", "Down"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	if received["title"] != "Alert" || received["message"] != "Down" {

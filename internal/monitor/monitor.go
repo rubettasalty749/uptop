@@ -25,7 +25,7 @@ type Engine struct {
 	histMu    sync.RWMutex
 	histories map[int]*SiteHistory
 
-	tokenIndex map[string]int
+	tokenIndex map[string]int // protected by mu
 
 	probeResultsMu sync.RWMutex
 	probeResults   map[int]map[string]NodeResult
@@ -433,6 +433,7 @@ func (e *Engine) handleStatusChange(site models.Site, rawStatus string, code int
 func (e *Engine) triggerAlert(alertID int, title, message string) {
 	cfg, err := e.db.GetAlert(alertID)
 	if err != nil {
+		e.AddLog(fmt.Sprintf("Failed to load alert config %d: %v", alertID, err))
 		return
 	}
 	provider := alert.GetProvider(cfg)
@@ -440,8 +441,9 @@ func (e *Engine) triggerAlert(alertID int, title, message string) {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			_ = ctx
-			_ = provider.Send(title, message)
+			if err := provider.Send(ctx, title, message); err != nil {
+				e.AddLog(fmt.Sprintf("Alert send failed (%s): %v", cfg.Name, err))
+			}
 		}()
 	}
 }
