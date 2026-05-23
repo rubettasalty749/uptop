@@ -96,7 +96,9 @@ func convertKumaNotifications(entries []KumaNotifEntry) map[int]models.AlertConf
 	result := make(map[int]models.AlertConfig)
 	for _, entry := range entries {
 		var cfg KumaNotifConfig
-		json.Unmarshal([]byte(entry.Config), &cfg)
+		if err := json.Unmarshal([]byte(entry.Config), &cfg); err != nil {
+			continue
+		}
 
 		alert := models.AlertConfig{
 			ID:       entry.ID,
