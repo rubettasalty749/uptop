@@ -29,9 +29,9 @@ func typeIcon(siteType string, collapsed bool) string {
 		return "◆"
 	case "group":
 		if collapsed {
-			return ""
+			return "▶"
 		}
-		return ""
+		return "▼"
 	default:
 		return "·"
 	}
