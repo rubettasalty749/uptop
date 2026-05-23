@@ -38,7 +38,7 @@ func (m Model) renderTable(headers []string, items int, buildRows func(start, en
 	selectedVisual := m.cursor - m.tableOffset
 	rows := buildRows(m.tableOffset, end)
 
-	tableWidth := m.termWidth - 6
+	tableWidth := m.termWidth - chromePadH - 2
 	if tableWidth < 40 {
 		tableWidth = 40
 	}
@@ -53,16 +53,21 @@ func (m Model) renderTable(headers []string, items int, buildRows func(start, en
 			if row == table.HeaderRow {
 				return tableHeaderStyle
 			}
+			isSelected := row == selectedVisual
 			if styleOverride != nil {
 				if s := styleOverride(row, col); s != nil {
-					if col < len(colWidths) && colWidths[col] > 0 {
-						return s.Width(colWidths[col])
+					style := *s
+					if isSelected {
+						style = tableSelectedStyle.Foreground(s.GetForeground())
 					}
-					return *s
+					if col < len(colWidths) && colWidths[col] > 0 {
+						style = style.Width(colWidths[col])
+					}
+					return style
 				}
 			}
 			base := tableCellStyle
-			if row == selectedVisual {
+			if isSelected {
 				base = tableSelectedStyle
 			}
 			if col < len(colWidths) && colWidths[col] > 0 {

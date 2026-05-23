@@ -132,6 +132,93 @@ func heartbeatSparkline(statuses []bool, width int) string {
 	return sb.String()
 }
 
+func (m Model) groupSparkline(groupID int, width int) string {
+	allSites := m.engine.GetAllSites()
+	var childStatuses [][]bool
+	for _, s := range allSites {
+		if s.ParentID == groupID && !s.Paused && !m.isMonitorInMaintenance(s.ID) {
+			hist, _ := m.engine.GetHistory(s.ID)
+			if len(hist.Statuses) > 0 {
+				childStatuses = append(childStatuses, hist.Statuses)
+			}
+		}
+	}
+
+	if len(childStatuses) == 0 {
+		return subtleStyle.Render(strings.Repeat("·", width))
+	}
+
+	maxLen := 0
+	for _, s := range childStatuses {
+		if len(s) > maxLen {
+			maxLen = len(s)
+		}
+	}
+	if maxLen > width {
+		maxLen = width
+	}
+
+	aggregated := make([]bool, maxLen)
+	for i := 0; i < maxLen; i++ {
+		allUp := true
+		for _, statuses := range childStatuses {
+			idx := len(statuses) - maxLen + i
+			if idx >= 0 && !statuses[idx] {
+				allUp = false
+				break
+			}
+		}
+		aggregated[i] = allUp
+	}
+
+	var sb strings.Builder
+	if remaining := width - len(aggregated); remaining > 0 {
+		sb.WriteString(subtleStyle.Render(strings.Repeat("·", remaining)))
+	}
+	for _, up := range aggregated {
+		if up {
+			sb.WriteString(specialStyle.Render("●"))
+		} else {
+			sb.WriteString(dangerStyle.Render("●"))
+		}
+	}
+	return sb.String()
+}
+
+func (m Model) groupUptime(groupID int) string {
+	allSites := m.engine.GetAllSites()
+	var allStatuses [][]bool
+	for _, s := range allSites {
+		if s.ParentID == groupID && !s.Paused && !m.isMonitorInMaintenance(s.ID) {
+			hist, _ := m.engine.GetHistory(s.ID)
+			if len(hist.Statuses) > 0 {
+				allStatuses = append(allStatuses, hist.Statuses)
+			}
+		}
+	}
+	if len(allStatuses) == 0 {
+		return subtleStyle.Render("—")
+	}
+	total, up := 0, 0
+	for _, statuses := range allStatuses {
+		for _, s := range statuses {
+			total++
+			if s {
+				up++
+			}
+		}
+	}
+	return fmtUptime(func() []bool {
+		out := make([]bool, total)
+		idx := 0
+		for _, statuses := range allStatuses {
+			copy(out[idx:], statuses)
+			idx += len(statuses)
+		}
+		return out
+	}())
+}
+
 func fmtLatency(d time.Duration) string {
 	ms := d.Milliseconds()
 	if ms == 0 {
@@ -227,7 +314,7 @@ func fmtStatus(status string, paused bool, inMaint bool) string {
 func (m Model) dynamicWidths() (nameW, sparkW int) {
 	fixed := 6 + 10 + 10 + 8 + 8 + 7 + 9 // #, TYPE, STATUS, LATENCY, UPTIME, SSL, RETRY
 	overhead := 30                       // cell padding + borders
-	avail := m.termWidth - 6 - fixed - overhead
+	avail := m.termWidth - chromePadH - 2 - fixed - overhead
 	if avail < 30 {
 		avail = 30
 	}
@@ -285,8 +372,8 @@ func (m Model) viewSitesTab() string {
 						"group",
 						fmtStatus(site.Status, site.Paused, m.isMonitorInMaintenance(site.ID)),
 						subtleStyle.Render("—"),
-						subtleStyle.Render("—"),
-						subtleStyle.Render(strings.Repeat("·", sparkWidth)),
+						m.groupUptime(site.ID),
+						m.groupSparkline(site.ID, sparkWidth),
 						subtleStyle.Render("-"),
 						subtleStyle.Render("—"),
 					})

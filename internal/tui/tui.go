@@ -31,6 +31,16 @@ var (
 
 var pulseFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
+const (
+	chromePadV   = 2 // outer Padding(1,2): 1 top + 1 bottom
+	chromePadH   = 4 // outer Padding(1,2): 2 left + 2 right
+	chromeHeader = 1 // tab bar line
+	chromeGaps   = 2 // "\n" separators: before content + before footer
+	chromeFooter = 2 // footer: "\n" prefix + text line
+	chromeTable  = 3 // renderTable "\n" prefix + top border + header + bottom border (lipgloss collapses two into three rendered lines)
+	chromeBase   = chromePadV + chromeHeader + chromeGaps + chromeFooter + chromeTable
+)
+
 type sessionState int
 
 const (
@@ -198,17 +208,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.termWidth = msg.Width
 		m.termHeight = msg.Height
-		// Chrome: 1 top pad + 1 tabs + 2 newlines + 3 table borders + 1 table header + 1 footer + 1 bottom pad = 10
-		chrome := 10
-		if m.filterText != "" {
+		chrome := chromeBase
+		if m.filterMode || m.filterText != "" {
 			chrome++
 		}
 		m.maxTableRows = msg.Height - chrome
 		if m.maxTableRows < 1 {
 			m.maxTableRows = 1
 		}
-		m.logViewport.Width = msg.Width - 4
-		m.logViewport.Height = msg.Height - 8
+		m.logViewport.Width = msg.Width - chromePadH
+		m.logViewport.Height = msg.Height - (chromePadV + chromeHeader + chromeGaps + chromeFooter)
 		return m, tea.ClearScreen
 
 	case time.Time:
