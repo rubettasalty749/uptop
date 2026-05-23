@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"go-upkeep/internal/importer"
@@ -14,6 +15,10 @@ import (
 	"sort"
 	"strings"
 )
+
+func checkSecret(got, want string) bool {
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+}
 
 var statusTpl = template.Must(template.New("status").Parse(`
 <!DOCTYPE html>
@@ -153,7 +158,7 @@ type ServerConfig struct {
 	ClusterKey   string // Shared Secret for Security
 }
 
-func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) {
+func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 	if cfg.ClusterKey == "" {
 		fmt.Println("WARNING: No UPKEEP_CLUSTER_SECRET set. Cluster API endpoints are unauthenticated.")
 	}
@@ -176,7 +181,7 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) {
 
 	// 2. Health Check (For Cluster Follower)
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
-		if cfg.ClusterKey != "" && r.Header.Get("X-Upkeep-Secret") != cfg.ClusterKey {
+		if cfg.ClusterKey != "" && !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
 			http.Error(w, "Unauthorized", 401)
 			return
 		}
@@ -186,7 +191,7 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) {
 
 	// 3. Config Export
 	mux.HandleFunc("/api/backup/export", func(w http.ResponseWriter, r *http.Request) {
-		if cfg.ClusterKey == "" || r.Header.Get("X-Upkeep-Secret") != cfg.ClusterKey {
+		if cfg.ClusterKey == "" || !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
 			http.Error(w, "Unauthorized: UPKEEP_CLUSTER_SECRET required", 401)
 			return
 		}
@@ -205,10 +210,11 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) {
 			http.Error(w, "POST required", 405)
 			return
 		}
-		if cfg.ClusterKey == "" || r.Header.Get("X-Upkeep-Secret") != cfg.ClusterKey {
+		if cfg.ClusterKey == "" || !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
 			http.Error(w, "Unauthorized", 401)
 			return
 		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		var data models.Backup
 		if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
 			http.Error(w, "Invalid JSON", 400)
@@ -228,10 +234,11 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) {
 			http.Error(w, "POST required", 405)
 			return
 		}
-		if cfg.ClusterKey == "" || r.Header.Get("X-Upkeep-Secret") != cfg.ClusterKey {
+		if cfg.ClusterKey == "" || !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
 			http.Error(w, "Unauthorized", 401)
 			return
 		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		var kb importer.KumaBackup
 		if err := json.NewDecoder(r.Body).Decode(&kb); err != nil {
 			log.Printf("Invalid Kuma JSON: %v", err)
@@ -253,10 +260,11 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) {
 			http.Error(w, "POST required", 405)
 			return
 		}
-		if cfg.ClusterKey == "" || r.Header.Get("X-Upkeep-Secret") != cfg.ClusterKey {
+		if cfg.ClusterKey == "" || !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
 			http.Error(w, "Unauthorized", 401)
 			return
 		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		var req struct {
 			ID      string `json:"id"`
 			Name    string `json:"name"`
@@ -283,7 +291,7 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) {
 
 	// 7. Probe Assignment Fetch
 	mux.HandleFunc("/api/probe/assignments", func(w http.ResponseWriter, r *http.Request) {
-		if cfg.ClusterKey == "" || r.Header.Get("X-Upkeep-Secret") != cfg.ClusterKey {
+		if cfg.ClusterKey == "" || !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
 			http.Error(w, "Unauthorized", 401)
 			return
 		}
@@ -324,10 +332,11 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) {
 			http.Error(w, "POST required", 405)
 			return
 		}
-		if cfg.ClusterKey == "" || r.Header.Get("X-Upkeep-Secret") != cfg.ClusterKey {
+		if cfg.ClusterKey == "" || !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
 			http.Error(w, "Unauthorized", 401)
 			return
 		}
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		var req struct {
 			NodeID  string `json:"node_id"`
 			Results []struct {
@@ -387,13 +396,15 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) {
 		})
 	}
 
+	addr := fmt.Sprintf(":%d", cfg.Port)
+	srv := &http.Server{Addr: addr, Handler: mux}
 	go func() {
-		addr := fmt.Sprintf(":%d", cfg.Port)
 		fmt.Printf("HTTP Server listening on %s\n", addr)
-		if err := http.ListenAndServe(addr, mux); err != nil {
-			log.Fatalf("HTTP server failed: %v", err)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v", err)
 		}
 	}()
+	return srv
 }
 
 func renderStatusPage(w http.ResponseWriter, title string, eng *monitor.Engine) {
