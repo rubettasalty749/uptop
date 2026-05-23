@@ -57,6 +57,10 @@ type Store interface {
 	DeleteMaintenanceWindow(id int) error
 	IsMonitorInMaintenance(monitorID int) (bool, error)
 
+	// Preferences
+	GetPreference(key string) (string, error)
+	SetPreference(key, value string) error
+
 	// Backup & Restore
 	ExportData() (models.Backup, error)
 	ImportData(data models.Backup) error

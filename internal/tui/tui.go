@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"go-upkeep/internal/models"
 	"go-upkeep/internal/monitor"
@@ -30,6 +31,16 @@ var (
 )
 
 var pulseFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+const (
+	chromePadV   = 2 // outer Padding(1,2): 1 top + 1 bottom
+	chromePadH   = 4 // outer Padding(1,2): 2 left + 2 right
+	chromeHeader = 1 // tab bar line
+	chromeGaps   = 2 // "\n" separators: before content + before footer
+	chromeFooter = 2 // footer: "\n" prefix + text line
+	chromeTable  = 3 // renderTable "\n" prefix + top border + header + bottom border (lipgloss collapses two into three rendered lines)
+	chromeBase   = chromePadV + chromeHeader + chromeGaps + chromeFooter + chromeTable
+)
 
 type sessionState int
 
@@ -95,6 +106,7 @@ func InitialModel(isAdmin bool, s store.Store, eng *monitor.Engine) Model {
 	vpLogs.SetContent("Waiting for logs...")
 	z := zone.New()
 	spring := harmonica.NewSpring(harmonica.FPS(10), 6.0, 0.4)
+	collapsed := loadCollapsed(s)
 	return Model{
 		state:        stateDashboard,
 		logViewport:  vpLogs,
@@ -104,8 +116,35 @@ func InitialModel(isAdmin bool, s store.Store, eng *monitor.Engine) Model {
 		engine:       eng,
 		zones:        z,
 		pulseSpring:  spring,
-		collapsed:    make(map[int]bool),
+		collapsed:    collapsed,
 	}
+}
+
+func loadCollapsed(s store.Store) map[int]bool {
+	m := make(map[int]bool)
+	raw, err := s.GetPreference("collapsed_groups")
+	if err != nil || raw == "" {
+		return m
+	}
+	var ids []int
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+		return m
+	}
+	for _, id := range ids {
+		m[id] = true
+	}
+	return m
+}
+
+func saveCollapsed(s store.Store, collapsed map[int]bool) {
+	var ids []int
+	for id, v := range collapsed {
+		if v {
+			ids = append(ids, id)
+		}
+	}
+	data, _ := json.Marshal(ids)
+	_ = s.SetPreference("collapsed_groups", string(data))
 }
 
 func (m Model) Init() tea.Cmd {
@@ -198,17 +237,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.termWidth = msg.Width
 		m.termHeight = msg.Height
-		// Chrome: 1 top pad + 1 tabs + 2 newlines + 3 table borders + 1 table header + 1 footer + 1 bottom pad = 10
-		chrome := 10
-		if m.filterText != "" {
+		chrome := chromeBase
+		if m.filterMode || m.filterText != "" {
 			chrome++
 		}
 		m.maxTableRows = msg.Height - chrome
 		if m.maxTableRows < 1 {
 			m.maxTableRows = 1
 		}
-		m.logViewport.Width = msg.Width - 4
-		m.logViewport.Height = msg.Height - 8
+		m.logViewport.Width = msg.Width - chromePadH
+		m.logViewport.Height = msg.Height - (chromePadV + chromeHeader + chromeGaps + chromeFooter)
 		return m, tea.ClearScreen
 
 	case time.Time:
@@ -392,6 +430,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.currentTab == 0 && len(m.sites) > 0 && m.sites[m.cursor].Type == "group" {
 					gid := m.sites[m.cursor].ID
 					m.collapsed[gid] = !m.collapsed[gid]
+					saveCollapsed(m.store, m.collapsed)
 					m.refreshData()
 				}
 			case "p":
@@ -725,8 +764,14 @@ func (m Model) View() string {
 }
 
 func (m Model) viewDashboard() string {
+	allSites := m.engine.GetAllSites()
+	totalMonitors := 0
 	downCount := 0
-	for _, s := range m.sites {
+	for _, s := range allSites {
+		if s.Type == "group" {
+			continue
+		}
+		totalMonitors++
 		if !s.Paused && !m.isMonitorInMaintenance(s.ID) && (s.Status == "DOWN" || s.Status == "SSL EXP") {
 			downCount++
 		}
@@ -741,8 +786,8 @@ func (m Model) viewDashboard() string {
 	var sitesLabel string
 	if downCount > 0 {
 		sitesLabel = fmt.Sprintf("Sites (%d↓)", downCount)
-	} else if len(m.sites) > 0 {
-		sitesLabel = fmt.Sprintf("Sites (%d)", len(m.sites))
+	} else if totalMonitors > 0 {
+		sitesLabel = fmt.Sprintf("Sites (%d)", totalMonitors)
 	} else {
 		sitesLabel = "Sites"
 	}
@@ -806,12 +851,12 @@ func (m Model) viewDashboard() string {
 		}
 	}
 
-	upCount := len(m.sites) - downCount
+	upCount := totalMonitors - downCount
 	var upStr string
 	if downCount > 0 {
-		upStr = dangerStyle.Render(fmt.Sprintf("%d/%d UP", upCount, len(m.sites)))
+		upStr = dangerStyle.Render(fmt.Sprintf("%d/%d UP", upCount, totalMonitors))
 	} else {
-		upStr = specialStyle.Render(fmt.Sprintf("%d/%d UP", upCount, len(m.sites)))
+		upStr = specialStyle.Render(fmt.Sprintf("%d/%d UP", upCount, totalMonitors))
 	}
 	statusParts := []string{upStr}
 	if len(m.nodes) > 0 {

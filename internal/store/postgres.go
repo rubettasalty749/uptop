@@ -67,6 +67,10 @@ func (d *PostgresDialect) CreateTablesSQL() []string {
 			created_by TEXT DEFAULT '',
 			created_at TIMESTAMP DEFAULT NOW()
 		)`,
+		`CREATE TABLE IF NOT EXISTS preferences (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		)`,
 	}
 }
 

@@ -441,6 +441,24 @@ func (s *SQLStore) IsMonitorInMaintenance(monitorID int) (bool, error) {
 	return count > 0, nil
 }
 
+func (s *SQLStore) GetPreference(key string) (string, error) {
+	var value string
+	err := s.db.QueryRow(s.q("SELECT value FROM preferences WHERE key = ?"), key).Scan(&value)
+	if err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+func (s *SQLStore) SetPreference(key, value string) error {
+	if s.dollar {
+		_, err := s.db.Exec(s.q("INSERT INTO preferences (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = ?"), key, value, value)
+		return err
+	}
+	_, err := s.db.Exec("INSERT OR REPLACE INTO preferences (key, value) VALUES (?, ?)", key, value)
+	return err
+}
+
 func (s *SQLStore) ExportData() (models.Backup, error) {
 	sites, err := s.GetSites()
 	if err != nil {
