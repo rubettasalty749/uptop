@@ -21,6 +21,10 @@ var (
 
 	tableBorderStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#444"))
+
+	tableZebraStyle = lipgloss.NewStyle().
+			Padding(0, 1).
+			Background(lipgloss.Color("#1a1a2e"))
 )
 
 type StyleOverride func(row, col int) *lipgloss.Style
@@ -67,6 +71,9 @@ func (m Model) renderTable(headers []string, items int, buildRows func(start, en
 				}
 			}
 			base := tableCellStyle
+			if row%2 == 1 {
+				base = tableZebraStyle
+			}
 			if isSelected {
 				base = tableSelectedStyle
 			}

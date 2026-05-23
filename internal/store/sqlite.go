@@ -67,6 +67,10 @@ func (d *SQLiteDialect) CreateTablesSQL() []string {
 			created_by TEXT DEFAULT '',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS preferences (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		)`,
 	}
 }
 

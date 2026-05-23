@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"go-upkeep/internal/models"
 	"go-upkeep/internal/monitor"
@@ -105,6 +106,7 @@ func InitialModel(isAdmin bool, s store.Store, eng *monitor.Engine) Model {
 	vpLogs.SetContent("Waiting for logs...")
 	z := zone.New()
 	spring := harmonica.NewSpring(harmonica.FPS(10), 6.0, 0.4)
+	collapsed := loadCollapsed(s)
 	return Model{
 		state:        stateDashboard,
 		logViewport:  vpLogs,
@@ -114,8 +116,35 @@ func InitialModel(isAdmin bool, s store.Store, eng *monitor.Engine) Model {
 		engine:       eng,
 		zones:        z,
 		pulseSpring:  spring,
-		collapsed:    make(map[int]bool),
+		collapsed:    collapsed,
 	}
+}
+
+func loadCollapsed(s store.Store) map[int]bool {
+	m := make(map[int]bool)
+	raw, err := s.GetPreference("collapsed_groups")
+	if err != nil || raw == "" {
+		return m
+	}
+	var ids []int
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+		return m
+	}
+	for _, id := range ids {
+		m[id] = true
+	}
+	return m
+}
+
+func saveCollapsed(s store.Store, collapsed map[int]bool) {
+	var ids []int
+	for id, v := range collapsed {
+		if v {
+			ids = append(ids, id)
+		}
+	}
+	data, _ := json.Marshal(ids)
+	_ = s.SetPreference("collapsed_groups", string(data))
 }
 
 func (m Model) Init() tea.Cmd {
@@ -401,6 +430,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.currentTab == 0 && len(m.sites) > 0 && m.sites[m.cursor].Type == "group" {
 					gid := m.sites[m.cursor].ID
 					m.collapsed[gid] = !m.collapsed[gid]
+					saveCollapsed(m.store, m.collapsed)
 					m.refreshData()
 				}
 			case "p":

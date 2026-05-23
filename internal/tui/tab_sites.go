@@ -706,8 +706,19 @@ func (m Model) viewDetailPanel() string {
 
 	var b strings.Builder
 
-	title := titleStyle.Render(fmt.Sprintf("  %s", site.Name))
-	b.WriteString(title + "\n\n")
+	var breadcrumb string
+	if site.ParentID > 0 {
+		for _, s := range m.sites {
+			if s.ID == site.ParentID {
+				breadcrumb = subtleStyle.Render("  Sites > "+s.Name+" > ") + titleStyle.Render(site.Name)
+				break
+			}
+		}
+	}
+	if breadcrumb == "" {
+		breadcrumb = subtleStyle.Render("  Sites > ") + titleStyle.Render(site.Name)
+	}
+	b.WriteString(breadcrumb + "\n\n")
 
 	row := func(label, value string) {
 		b.WriteString(fmt.Sprintf("  %-16s %s\n", subtleStyle.Render(label), value))
@@ -777,8 +788,37 @@ func (m Model) viewDetailPanel() string {
 	const sparkWidth = 40
 	if site.Type == "push" {
 		b.WriteString("  " + heartbeatSparkline(hist.Statuses, sparkWidth))
+		if len(hist.Statuses) > 0 {
+			up := 0
+			for _, s := range hist.Statuses {
+				if s {
+					up++
+				}
+			}
+			b.WriteString(fmt.Sprintf("\n  %s %d/%d checks up",
+				subtleStyle.Render("Heartbeats"),
+				up, len(hist.Statuses)))
+		}
 	} else {
 		b.WriteString("  " + latencySparkline(hist.Latencies, sparkWidth))
+		if len(hist.Latencies) > 0 {
+			minL, maxL := hist.Latencies[0], hist.Latencies[0]
+			var total time.Duration
+			for _, l := range hist.Latencies {
+				total += l
+				if l < minL {
+					minL = l
+				}
+				if l > maxL {
+					maxL = l
+				}
+			}
+			avg := total / time.Duration(len(hist.Latencies))
+			b.WriteString(fmt.Sprintf("\n  %s %dms  %s %dms  %s %dms",
+				subtleStyle.Render("Min"), minL.Milliseconds(),
+				subtleStyle.Render("Avg"), avg.Milliseconds(),
+				subtleStyle.Render("Max"), maxL.Milliseconds()))
+		}
 	}
 
 	b.WriteString("\n\n")
