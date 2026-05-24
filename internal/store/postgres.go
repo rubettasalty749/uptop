@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"log"
 
 	_ "github.com/lib/pq"
 )
@@ -99,15 +100,31 @@ func (d *PostgresDialect) UpsertNodeSQL() string {
 func (d *PostgresDialect) ResetSequenceOnEmpty(db *sql.DB, table string) {}
 
 func (d *PostgresDialect) ImportWipe(tx *sql.Tx) {
-	tx.Exec("TRUNCATE TABLE sites RESTART IDENTITY CASCADE")
-	tx.Exec("TRUNCATE TABLE alerts RESTART IDENTITY CASCADE")
-	tx.Exec("TRUNCATE TABLE users RESTART IDENTITY CASCADE")
-	tx.Exec("TRUNCATE TABLE maintenance_windows RESTART IDENTITY CASCADE")
+	if _, err := tx.Exec("TRUNCATE TABLE sites RESTART IDENTITY CASCADE"); err != nil {
+		log.Printf("import wipe error: %v", err)
+	}
+	if _, err := tx.Exec("TRUNCATE TABLE alerts RESTART IDENTITY CASCADE"); err != nil {
+		log.Printf("import wipe error: %v", err)
+	}
+	if _, err := tx.Exec("TRUNCATE TABLE users RESTART IDENTITY CASCADE"); err != nil {
+		log.Printf("import wipe error: %v", err)
+	}
+	if _, err := tx.Exec("TRUNCATE TABLE maintenance_windows RESTART IDENTITY CASCADE"); err != nil {
+		log.Printf("import wipe error: %v", err)
+	}
 }
 
 func (d *PostgresDialect) ImportResetSequences(tx *sql.Tx) {
-	tx.Exec("SELECT setval('sites_id_seq', (SELECT COALESCE(MAX(id), 1) FROM sites))")
-	tx.Exec("SELECT setval('alerts_id_seq', (SELECT COALESCE(MAX(id), 1) FROM alerts))")
-	tx.Exec("SELECT setval('users_id_seq', (SELECT COALESCE(MAX(id), 1) FROM users))")
-	tx.Exec("SELECT setval('maintenance_windows_id_seq', (SELECT COALESCE(MAX(id), 1) FROM maintenance_windows))")
+	if _, err := tx.Exec("SELECT setval('sites_id_seq', (SELECT COALESCE(MAX(id), 1) FROM sites))"); err != nil {
+		log.Printf("sequence reset error: %v", err)
+	}
+	if _, err := tx.Exec("SELECT setval('alerts_id_seq', (SELECT COALESCE(MAX(id), 1) FROM alerts))"); err != nil {
+		log.Printf("sequence reset error: %v", err)
+	}
+	if _, err := tx.Exec("SELECT setval('users_id_seq', (SELECT COALESCE(MAX(id), 1) FROM users))"); err != nil {
+		log.Printf("sequence reset error: %v", err)
+	}
+	if _, err := tx.Exec("SELECT setval('maintenance_windows_id_seq', (SELECT COALESCE(MAX(id), 1) FROM maintenance_windows))"); err != nil {
+		log.Printf("sequence reset error: %v", err)
+	}
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"go-upkeep/internal/models"
+	"log"
 	"time"
 )
 
@@ -48,14 +49,16 @@ func (s *SQLStore) Init() error {
 		}
 	}
 	for _, m := range s.dialect.MigrationsSQL() {
-		s.db.Exec(m)
+		if _, err := s.db.Exec(m); err != nil {
+			log.Printf("migration error: %v", err)
+		}
 	}
 	return nil
 }
 
 func (s *SQLStore) GetSites() ([]models.Site, error) {
 	bf := s.dialect.BoolFalse()
-	query := fmt.Sprintf(
+	query := fmt.Sprintf( //nolint:gosec // bf is a dialect boolean literal, not user input
 		"SELECT id, COALESCE(name, url), url, COALESCE(type, 'http'), COALESCE(token, ''), interval, alert_id, check_ssl, threshold, max_retries, COALESCE(hostname, ''), COALESCE(port, 0), COALESCE(timeout, 0), COALESCE(method, 'GET'), COALESCE(description, ''), COALESCE(parent_id, 0), COALESCE(accepted_codes, '200-299'), COALESCE(dns_resolve_type, ''), COALESCE(dns_server, ''), COALESCE(ignore_tls, %s), COALESCE(paused, %s), COALESCE(regions, '') FROM sites",
 		bf, bf,
 	)
@@ -95,7 +98,7 @@ func (s *SQLStore) AddSite(site models.Site) error {
 
 func (s *SQLStore) UpdateSite(site models.Site) error {
 	var existingToken string
-	s.db.QueryRow(s.q("SELECT token FROM sites WHERE id=?"), site.ID).Scan(&existingToken)
+	_ = s.db.QueryRow(s.q("SELECT token FROM sites WHERE id=?"), site.ID).Scan(&existingToken) //nolint:errcheck
 	if site.Type == "push" && existingToken == "" {
 		var err error
 		existingToken, err = generateToken()
@@ -125,7 +128,7 @@ func (s *SQLStore) DeleteSite(id int) error {
 
 func (s *SQLStore) GetSiteByName(name string) (models.Site, error) {
 	bf := s.dialect.BoolFalse()
-	query := fmt.Sprintf(
+	query := fmt.Sprintf( //nolint:gosec // bf is a dialect boolean literal, not user input
 		"SELECT id, COALESCE(name, url), url, COALESCE(type, 'http'), COALESCE(token, ''), interval, alert_id, check_ssl, threshold, max_retries, COALESCE(hostname, ''), COALESCE(port, 0), COALESCE(timeout, 0), COALESCE(method, 'GET'), COALESCE(description, ''), COALESCE(parent_id, 0), COALESCE(accepted_codes, '200-299'), COALESCE(dns_resolve_type, ''), COALESCE(dns_server, ''), COALESCE(ignore_tls, %s), COALESCE(paused, %s), COALESCE(regions, '') FROM sites WHERE name = %s",
 		bf, bf, s.q("?"),
 	)
@@ -502,7 +505,7 @@ func (s *SQLStore) ImportData(data models.Backup) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
 	s.dialect.ImportWipe(tx)
 

@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"log"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -98,21 +99,39 @@ func (d *SQLiteDialect) UpsertNodeSQL() string {
 
 func (d *SQLiteDialect) ResetSequenceOnEmpty(db *sql.DB, table string) {
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count)
+	_ = db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count) //nolint:errcheck
 	if count == 0 {
-		db.Exec("DELETE FROM sqlite_sequence WHERE name=?", table)
+		if _, err := db.Exec("DELETE FROM sqlite_sequence WHERE name=?", table); err != nil {
+			log.Printf("sequence cleanup error: %v", err)
+		}
 	}
 }
 
 func (d *SQLiteDialect) ImportWipe(tx *sql.Tx) {
-	tx.Exec("DELETE FROM sites")
-	tx.Exec("DELETE FROM sqlite_sequence WHERE name='sites'")
-	tx.Exec("DELETE FROM alerts")
-	tx.Exec("DELETE FROM sqlite_sequence WHERE name='alerts'")
-	tx.Exec("DELETE FROM users")
-	tx.Exec("DELETE FROM sqlite_sequence WHERE name='users'")
-	tx.Exec("DELETE FROM maintenance_windows")
-	tx.Exec("DELETE FROM sqlite_sequence WHERE name='maintenance_windows'")
+	if _, err := tx.Exec("DELETE FROM sites"); err != nil {
+		log.Printf("import wipe error: %v", err)
+	}
+	if _, err := tx.Exec("DELETE FROM sqlite_sequence WHERE name='sites'"); err != nil {
+		log.Printf("import wipe error: %v", err)
+	}
+	if _, err := tx.Exec("DELETE FROM alerts"); err != nil {
+		log.Printf("import wipe error: %v", err)
+	}
+	if _, err := tx.Exec("DELETE FROM sqlite_sequence WHERE name='alerts'"); err != nil {
+		log.Printf("import wipe error: %v", err)
+	}
+	if _, err := tx.Exec("DELETE FROM users"); err != nil {
+		log.Printf("import wipe error: %v", err)
+	}
+	if _, err := tx.Exec("DELETE FROM sqlite_sequence WHERE name='users'"); err != nil {
+		log.Printf("import wipe error: %v", err)
+	}
+	if _, err := tx.Exec("DELETE FROM maintenance_windows"); err != nil {
+		log.Printf("import wipe error: %v", err)
+	}
+	if _, err := tx.Exec("DELETE FROM sqlite_sequence WHERE name='maintenance_windows'"); err != nil {
+		log.Printf("import wipe error: %v", err)
+	}
 }
 
 func (d *SQLiteDialect) ImportResetSequences(tx *sql.Tx) {}

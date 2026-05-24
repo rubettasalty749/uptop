@@ -97,7 +97,7 @@ func Handler(eng *monitor.Engine) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		w.Write([]byte(b.String()))
+		_, _ = w.Write([]byte(b.String())) //nolint:errcheck
 	}
 }
 

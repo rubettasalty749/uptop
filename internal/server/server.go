@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 )
 
 func checkSecret(got, want string) bool {
@@ -168,100 +169,100 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 	mux.HandleFunc("/api/push", func(w http.ResponseWriter, r *http.Request) {
 		token := r.URL.Query().Get("token")
 		if token == "" {
-			http.Error(w, "Missing token", 400)
+			http.Error(w, "Missing token", http.StatusBadRequest)
 			return
 		}
 		if eng.RecordHeartbeat(token) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("OK"))
+			_, _ = w.Write([]byte("OK"))
 		} else {
-			http.Error(w, "Invalid Token", 404)
+			http.Error(w, "Invalid Token", http.StatusNotFound)
 		}
 	})
 
 	// 2. Health Check (For Cluster Follower)
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		if cfg.ClusterKey != "" && !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
-			http.Error(w, "Unauthorized", 401)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	})
 
 	// 3. Config Export
 	mux.HandleFunc("/api/backup/export", func(w http.ResponseWriter, r *http.Request) {
 		if cfg.ClusterKey == "" || !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
-			http.Error(w, "Unauthorized: UPKEEP_CLUSTER_SECRET required", 401)
+			http.Error(w, "Unauthorized: UPKEEP_CLUSTER_SECRET required", http.StatusUnauthorized)
 			return
 		}
 		data, err := s.ExportData()
 		if err != nil {
 			log.Printf("Export failed: %v", err)
-			http.Error(w, "Export failed", 500)
+			http.Error(w, "Export failed", http.StatusInternalServerError)
 			return
 		}
-		json.NewEncoder(w).Encode(data)
+		_ = json.NewEncoder(w).Encode(data) //nolint:errcheck
 	})
 
 	// 4. Config Import
 	mux.HandleFunc("/api/backup/import", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			http.Error(w, "POST required", 405)
+			http.Error(w, "POST required", http.StatusMethodNotAllowed)
 			return
 		}
 		if cfg.ClusterKey == "" || !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
-			http.Error(w, "Unauthorized", 401)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		var data models.Backup
 		if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-			http.Error(w, "Invalid JSON", 400)
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
 		if err := s.ImportData(data); err != nil {
 			log.Printf("Import failed: %v", err)
-			http.Error(w, "Import failed", 500)
+			http.Error(w, "Import failed", http.StatusInternalServerError)
 			return
 		}
-		w.Write([]byte("Import Successful"))
+		_, _ = w.Write([]byte("Import Successful"))
 	})
 
 	// 5. Kuma Import
 	mux.HandleFunc("/api/import/kuma", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			http.Error(w, "POST required", 405)
+			http.Error(w, "POST required", http.StatusMethodNotAllowed)
 			return
 		}
 		if cfg.ClusterKey == "" || !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
-			http.Error(w, "Unauthorized", 401)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		var kb importer.KumaBackup
 		if err := json.NewDecoder(r.Body).Decode(&kb); err != nil {
 			log.Printf("Invalid Kuma JSON: %v", err)
-			http.Error(w, "Invalid Kuma JSON", 400)
+			http.Error(w, "Invalid Kuma JSON", http.StatusBadRequest)
 			return
 		}
 		backup := importer.ConvertKuma(&kb)
 		if err := s.ImportData(backup); err != nil {
 			log.Printf("Kuma import failed: %v", err)
-			http.Error(w, "Import failed", 500)
+			http.Error(w, "Import failed", http.StatusInternalServerError)
 			return
 		}
-		w.Write([]byte(fmt.Sprintf("Imported %d monitors, %d alerts from Kuma v%s", len(backup.Sites), len(backup.Alerts), kb.Version)))
+		fmt.Fprintf(w, "Imported %d monitors, %d alerts from Kuma v%s", len(backup.Sites), len(backup.Alerts), kb.Version)
 	})
 
 	// 6. Probe Registration
 	mux.HandleFunc("/api/probe/register", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			http.Error(w, "POST required", 405)
+			http.Error(w, "POST required", http.StatusMethodNotAllowed)
 			return
 		}
 		if cfg.ClusterKey == "" || !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
-			http.Error(w, "Unauthorized", 401)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -272,27 +273,27 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 			Version string `json:"version"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid JSON", 400)
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
 		if req.ID == "" {
-			http.Error(w, "id is required", 400)
+			http.Error(w, "id is required", http.StatusBadRequest)
 			return
 		}
 		if err := s.RegisterNode(models.ProbeNode{
 			ID: req.ID, Name: req.Name, Region: req.Region, Version: req.Version,
 		}); err != nil {
 			log.Printf("Probe register failed: %v", err)
-			http.Error(w, "Registration failed", 500)
+			http.Error(w, "Registration failed", http.StatusInternalServerError)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true}) //nolint:errcheck
 	})
 
 	// 7. Probe Assignment Fetch
 	mux.HandleFunc("/api/probe/assignments", func(w http.ResponseWriter, r *http.Request) {
 		if cfg.ClusterKey == "" || !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
-			http.Error(w, "Unauthorized", 401)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 		nodeID := r.URL.Query().Get("node_id")
@@ -323,17 +324,17 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 			assigned = append(assigned, site)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string][]models.Site{"sites": assigned})
+		_ = json.NewEncoder(w).Encode(map[string][]models.Site{"sites": assigned}) //nolint:errcheck
 	})
 
 	// 8. Probe Result Submission
 	mux.HandleFunc("/api/probe/results", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			http.Error(w, "POST required", 405)
+			http.Error(w, "POST required", http.StatusMethodNotAllowed)
 			return
 		}
 		if cfg.ClusterKey == "" || !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
-			http.Error(w, "Unauthorized", 401)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -346,11 +347,11 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 			} `json:"results"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid JSON", 400)
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
 		if req.NodeID == "" {
-			http.Error(w, "node_id is required", 400)
+			http.Error(w, "node_id is required", http.StatusBadRequest)
 			return
 		}
 		for _, result := range req.Results {
@@ -359,8 +360,10 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 			}
 			eng.IngestProbeResult(req.NodeID, result.SiteID, result.LatencyNs, result.IsUp)
 		}
-		s.UpdateNodeLastSeen(req.NodeID)
-		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+		if err := s.UpdateNodeLastSeen(req.NodeID); err != nil {
+			log.Printf("Failed to update node last seen: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true}) //nolint:errcheck
 	})
 
 	// 9. Prometheus Metrics
@@ -392,12 +395,12 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 				state[id] = site
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(state)
+			_ = json.NewEncoder(w).Encode(state) //nolint:errcheck
 		})
 	}
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		fmt.Printf("HTTP Server listening on %s\n", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -426,5 +429,7 @@ func renderStatusPage(w http.ResponseWriter, title string, eng *monitor.Engine) 
 		Title string
 		Sites []models.Site
 	}{Title: title, Sites: sites}
-	statusTpl.Execute(w, data)
+	if err := statusTpl.Execute(w, data); err != nil {
+		log.Printf("Failed to render status page: %v", err)
+	}
 }
