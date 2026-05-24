@@ -37,10 +37,7 @@ func typeIcon(siteType string, collapsed bool) string {
 	}
 }
 
-var siteGroupStyle = lipgloss.NewStyle().
-	Padding(0, 1).
-	Bold(true).
-	Foreground(lipgloss.Color("#7D56F4"))
+var siteGroupStyle lipgloss.Style
 
 type siteFormData struct {
 	Name          string
@@ -340,7 +337,7 @@ func (m Model) viewSitesTab() string {
 	if len(m.sites) == 0 {
 		welcome := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#7D56F4")).
+			BorderForeground(m.theme.Accent).
 			Padding(1, 3).
 			Render(
 				titleStyle.Render("Go-Upkeep") + "\n\n" +
@@ -651,7 +648,7 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 		).Title("Advanced").WithHideFunc(func() bool {
 			return m.siteFormData.SiteType == "group"
 		}),
-	).WithTheme(huh.ThemeDracula())
+	).WithTheme(m.theme.HuhTheme())
 
 	return m.huhForm.Init()
 }
