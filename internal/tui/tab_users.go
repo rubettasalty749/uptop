@@ -94,7 +94,7 @@ func (m *Model) initUserHuhForm() tea.Cmd {
 					huh.NewOption("Admin", "admin"),
 				).Value(&m.userFormData.Role),
 		).Title("SSH Access"),
-	).WithTheme(huh.ThemeDracula())
+	).WithTheme(m.theme.HuhTheme())
 
 	return m.huhForm.Init()
 }

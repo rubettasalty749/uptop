@@ -20,15 +20,33 @@ import (
 )
 
 var (
-	subtleStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#9ca0b0", Dark: "#565f89"})
-	specialStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#43BF6D", Dark: "#73F59F"})
-	warnStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#F0E442", Dark: "#F0E442"})
-	dangerStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#F25D94", Dark: "#F25D94"})
-	titleStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Bold(true)
-
-	activeTab   = lipgloss.NewStyle().Border(lipgloss.NormalBorder(), false, false, true, false).BorderForeground(lipgloss.Color("#7D56F4")).Foreground(lipgloss.Color("#7D56F4")).Bold(true).Padding(0, 1)
-	inactiveTab = lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.AdaptiveColor{Light: "#AAA", Dark: "#555"})
+	subtleStyle  lipgloss.Style
+	specialStyle lipgloss.Style
+	warnStyle    lipgloss.Style
+	dangerStyle  lipgloss.Style
+	titleStyle   lipgloss.Style
+	activeTab    lipgloss.Style
+	inactiveTab  lipgloss.Style
 )
+
+func applyTheme(t Theme) {
+	subtleStyle = lipgloss.NewStyle().Foreground(t.Subtle)
+	specialStyle = lipgloss.NewStyle().Foreground(t.Success)
+	warnStyle = lipgloss.NewStyle().Foreground(t.Warning)
+	dangerStyle = lipgloss.NewStyle().Foreground(t.Danger)
+	titleStyle = lipgloss.NewStyle().Foreground(t.Accent).Bold(true)
+	activeTab = lipgloss.NewStyle().Border(lipgloss.NormalBorder(), false, false, true, false).BorderForeground(t.Accent).Foreground(t.Accent).Bold(true).Padding(0, 1)
+	inactiveTab = lipgloss.NewStyle().Padding(0, 1).Foreground(t.Muted)
+
+	tableHeaderStyle = lipgloss.NewStyle().Foreground(t.Accent).Bold(true).Padding(0, 1)
+	tableCellStyle = lipgloss.NewStyle().Padding(0, 1)
+	tableSelectedStyle = lipgloss.NewStyle().Padding(0, 1).Bold(true).Foreground(t.SelectedFg).Background(t.SelectedBg)
+	tableBorderStyle = lipgloss.NewStyle().Foreground(t.Border)
+	tableZebraStyle = lipgloss.NewStyle().Padding(0, 1).Background(t.ZebraBg)
+
+	siteGroupStyle = lipgloss.NewStyle().Padding(0, 1).Bold(true).Foreground(t.Accent)
+	maintStyle = lipgloss.NewStyle().Foreground(t.Purple)
+}
 
 var pulseFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
@@ -81,9 +99,11 @@ type Model struct {
 	deleteName string
 	deleteTab  int
 
-	collapsed map[int]bool
-	store     store.Store
-	engine    *monitor.Engine
+	collapsed  map[int]bool
+	store      store.Store
+	engine     *monitor.Engine
+	theme      Theme
+	themeIndex int
 
 	// harmonica animation state
 	pulseSpring harmonica.Spring
@@ -107,6 +127,19 @@ func InitialModel(isAdmin bool, s store.Store, eng *monitor.Engine) Model {
 	z := zone.New()
 	spring := harmonica.NewSpring(harmonica.FPS(10), 6.0, 0.4)
 	collapsed := loadCollapsed(s)
+
+	themeName, _ := s.GetPreference("theme")
+	theme := themeByName(themeName)
+	themeIdx := 0
+	for i, t := range themes {
+		if t.Name == theme.Name {
+			themeIdx = i
+			break
+		}
+	}
+
+	applyTheme(theme)
+
 	return Model{
 		state:        stateDashboard,
 		logViewport:  vpLogs,
@@ -117,6 +150,8 @@ func InitialModel(isAdmin bool, s store.Store, eng *monitor.Engine) Model {
 		zones:        z,
 		pulseSpring:  spring,
 		collapsed:    collapsed,
+		theme:        theme,
+		themeIndex:   themeIdx,
 	}
 }
 
@@ -458,6 +493,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.refreshData()
 					}
 				}
+			case "T":
+				m.themeIndex = (m.themeIndex + 1) % len(themes)
+				m.theme = themes[m.themeIndex]
+				applyTheme(m.theme)
+				_ = m.store.SetPreference("theme", m.theme.Name)
 			case "d", "backspace":
 				if m.currentTab == 0 && len(m.sites) > 0 {
 					m.deleteID = m.sites[m.cursor].ID
@@ -723,7 +763,7 @@ func (m Model) View() string {
 		hint := subtleStyle.Render("[y] Confirm  [n] Cancel")
 		box := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#F25D94")).
+			BorderForeground(m.theme.Danger).
 			Padding(1, 3).
 			Render(msg + "\n\n" + hint)
 		return lipgloss.NewStyle().Padding(2, 4).Render(box)
@@ -875,19 +915,19 @@ func (m Model) viewDashboard() string {
 
 	var footer string
 	if m.filterMode {
-		cursor := lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Render("│")
+		cursor := lipgloss.NewStyle().Foreground(m.theme.Accent).Render("│")
 		footer = "\n" + titleStyle.Render("/") + " " + m.filterText + cursor + "  " + subtleStyle.Render("[Enter]Apply [Esc]Clear")
 	} else {
 		var keys string
 		switch m.currentTab {
 		case 0:
-			keys = "[/]Filter [n]New [e]Edit [i]Info [d]Del [p]Pause [Tab]Switch [q]Quit"
+			keys = "[/]Filter [n]New [e]Edit [i]Info [d]Del [p]Pause [T]Theme [Tab]Switch [q]Quit"
 		case 4:
-			keys = "[n]New [x]End [d]Del [Tab]Switch [q]Quit"
+			keys = "[n]New [x]End [d]Del [T]Theme [Tab]Switch [q]Quit"
 		case 5:
-			keys = "[n]Add [d]Revoke [Tab]Switch [q]Quit"
+			keys = "[n]Add [d]Revoke [T]Theme [Tab]Switch [q]Quit"
 		default:
-			keys = "[Tab]Switch [q]Quit"
+			keys = "[T]Theme [Tab]Switch [q]Quit"
 		}
 		footer = "\n" + statusLine + "  " + subtleStyle.Render(keys)
 		if m.filterText != "" && m.currentTab == 0 {

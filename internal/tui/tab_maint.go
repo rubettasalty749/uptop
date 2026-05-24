@@ -11,7 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-var maintStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#bb9af7"))
+var maintStyle lipgloss.Style
 
 type maintFormData struct {
 	Title       string
@@ -187,7 +187,7 @@ func (m *Model) initMaintHuhForm() tea.Cmd {
 		).Title("Duration").WithHideFunc(func() bool {
 			return m.maintFormData.Type == "incident"
 		}),
-	).WithTheme(huh.ThemeDracula())
+	).WithTheme(m.theme.HuhTheme())
 
 	return m.huhForm.Init()
 }

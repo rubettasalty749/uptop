@@ -6,25 +6,11 @@ import (
 )
 
 var (
-	tableHeaderStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#7D56F4")).
-				Bold(true).
-				Padding(0, 1)
-
-	tableCellStyle = lipgloss.NewStyle().Padding(0, 1)
-
-	tableSelectedStyle = lipgloss.NewStyle().
-				Padding(0, 1).
-				Bold(true).
-				Foreground(lipgloss.Color("#ffffff")).
-				Background(lipgloss.Color("#3b3b5c"))
-
-	tableBorderStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#444"))
-
-	tableZebraStyle = lipgloss.NewStyle().
-			Padding(0, 1).
-			Background(lipgloss.Color("#1a1a2e"))
+	tableHeaderStyle   lipgloss.Style
+	tableCellStyle     lipgloss.Style
+	tableSelectedStyle lipgloss.Style
+	tableBorderStyle   lipgloss.Style
+	tableZebraStyle    lipgloss.Style
 )
 
 type StyleOverride func(row, col int) *lipgloss.Style

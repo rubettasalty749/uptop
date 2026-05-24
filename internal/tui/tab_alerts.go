@@ -319,7 +319,7 @@ func (m *Model) initAlertHuhForm() tea.Cmd {
 		).Title("Gotify Settings").WithHideFunc(func() bool {
 			return m.alertFormData.AlertType != "gotify"
 		}),
-	).WithTheme(huh.ThemeDracula())
+	).WithTheme(m.theme.HuhTheme())
 
 	return m.huhForm.Init()
 }
