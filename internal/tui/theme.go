@@ -37,9 +37,10 @@ type Theme struct {
 
 var themes = []Theme{
 	themeFlexokiDark,
-	themeFlexokiLight,
+	themeTokyoNight,
 	themeCatppuccinMocha,
 	themeNord,
+	themeGruvbox,
 }
 
 var themeFlexokiDark = Theme{
@@ -62,24 +63,44 @@ var themeFlexokiDark = Theme{
 	SelectedBg: "#403E3C",
 }
 
-var themeFlexokiLight = Theme{
-	Name:       "Flexoki Light",
-	Bg:         "#FFFCF0",
-	Surface:    "#F2F0E5",
-	Panel:      "#E6E4D9",
-	Border:     "#B7B5AC",
-	Fg:         "#100F0F",
-	Muted:      "#6F6E69",
-	Subtle:     "#878580",
-	Success:    "#66800B",
-	Warning:    "#AD8301",
-	Danger:     "#AF3029",
-	Info:       "#205EA6",
-	Accent:     "#24837B",
-	Purple:     "#5E409D",
-	ZebraBg:    "#F7F5EA",
-	SelectedFg: "#100F0F",
-	SelectedBg: "#DAD8CE",
+var themeTokyoNight = Theme{
+	Name:       "Tokyo Night",
+	Bg:         "#1a1b26",
+	Surface:    "#24283b",
+	Panel:      "#292e42",
+	Border:     "#3b4261",
+	Fg:         "#c0caf5",
+	Muted:      "#a9b1d6",
+	Subtle:     "#565f89",
+	Success:    "#9ece6a",
+	Warning:    "#e0af68",
+	Danger:     "#f7768e",
+	Info:       "#7aa2f7",
+	Accent:     "#7dcfff",
+	Purple:     "#bb9af7",
+	ZebraBg:    "#1e1f2b",
+	SelectedFg: "#c0caf5",
+	SelectedBg: "#292e42",
+}
+
+var themeGruvbox = Theme{
+	Name:       "Gruvbox",
+	Bg:         "#282828",
+	Surface:    "#3c3836",
+	Panel:      "#504945",
+	Border:     "#665c54",
+	Fg:         "#ebdbb2",
+	Muted:      "#bdae93",
+	Subtle:     "#7c6f64",
+	Success:    "#b8bb26",
+	Warning:    "#fabd2f",
+	Danger:     "#fb4934",
+	Info:       "#83a598",
+	Accent:     "#8ec07c",
+	Purple:     "#d3869b",
+	ZebraBg:    "#2e2c2a",
+	SelectedFg: "#fbf1c7",
+	SelectedBg: "#504945",
 }
 
 var themeCatppuccinMocha = Theme{
