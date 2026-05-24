@@ -7,6 +7,7 @@ import (
 	"go-upkeep/internal/alert"
 	"go-upkeep/internal/models"
 	"go-upkeep/internal/store"
+	"math/rand/v2"
 	"net/http"
 	"sync"
 	"time"
@@ -277,6 +278,14 @@ func (e *Engine) ToggleSitePause(id int) bool {
 }
 
 func (e *Engine) monitorRoutine(ctx context.Context, id int) {
+	// Stagger initial check to avoid thundering herd on startup
+	stagger := time.Duration(rand.IntN(3000)) * time.Millisecond
+	select {
+	case <-time.After(stagger):
+	case <-ctx.Done():
+		return
+	}
+
 	e.checkByID(id)
 	for {
 		select {
@@ -314,8 +323,9 @@ func (e *Engine) monitorRoutine(ctx context.Context, id int) {
 		if interval < 5 {
 			interval = 5
 		}
+		jitter := time.Duration(rand.IntN(interval*100)) * time.Millisecond
 		select {
-		case <-time.After(time.Duration(interval) * time.Second):
+		case <-time.After(time.Duration(interval)*time.Second + jitter):
 		case <-ctx.Done():
 			return
 		}
