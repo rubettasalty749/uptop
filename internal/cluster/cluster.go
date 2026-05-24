@@ -59,7 +59,7 @@ func runFollowerLoop(ctx context.Context, cfg Config, eng *monitor.Engine) {
 
 		if err == nil && resp.StatusCode == 200 {
 			isLeaderHealthy = true
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 
 		if isLeaderHealthy {

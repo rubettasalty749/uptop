@@ -76,7 +76,7 @@ func runApply(args []string) {
 	prune := fs.Bool("prune", false, "Delete monitors/alerts not in YAML")
 	dbType := fs.String("db-type", envOrDefault("UPKEEP_DB_TYPE", "sqlite"), "Database type")
 	dsn := fs.String("dsn", envOrDefault("UPKEEP_DB_DSN", "upkeep.db"), "Database DSN")
-	fs.Parse(args)
+	_ = fs.Parse(args) // ExitOnError: parse errors exit before returning
 
 	if *filePath == "" {
 		fmt.Fprintln(os.Stderr, "error: -f flag is required")
@@ -109,7 +109,7 @@ func runExport(args []string) {
 	outPath := fs.String("o", "-", "Output file path (- for stdout)")
 	dbType := fs.String("db-type", envOrDefault("UPKEEP_DB_TYPE", "sqlite"), "Database type")
 	dsn := fs.String("dsn", envOrDefault("UPKEEP_DB_DSN", "upkeep.db"), "Database DSN")
-	fs.Parse(args)
+	_ = fs.Parse(args) // ExitOnError: parse errors exit before returning
 
 	s := openStore(*dbType, *dsn)
 
@@ -186,6 +186,7 @@ func runServe(args []string) {
 		fmt.Printf("Cluster: Running as PROBE (node=%s, region=%s)\n", nodeID, nodeRegion)
 
 		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		done := make(chan os.Signal, 1)
 		signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 		go func() {
@@ -212,7 +213,7 @@ func runServe(args []string) {
 	flagDSN := fs.String("dsn", dbDSN, "Database DSN")
 	demo := fs.Bool("demo", false, "Seed demo data")
 	importKuma := fs.String("import-kuma", "", "Import Uptime Kuma backup JSON file")
-	fs.Parse(args)
+	_ = fs.Parse(args) // ExitOnError: parse errors exit before returning
 
 	var s store.Store
 	var dbErr error
@@ -341,13 +342,22 @@ func seedDemoData(s store.Store) {
 	}
 	fmt.Println("Seeding demo data...")
 
-	s.AddAlert("Discord Ops", "discord", map[string]string{"url": "https://discord.com/api/webhooks/demo/token"})
-	s.AddAlert("Slack Infra", "slack", map[string]string{"url": "https://hooks.slack.com/services/DEMO/WEBHOOK"})
-	s.AddAlert("Email Oncall", "email", map[string]string{
+	if err := s.AddAlert("Discord Ops", "discord", map[string]string{"url": "https://discord.com/api/webhooks/demo/token"}); err != nil {
+		log.Printf("demo seed: add alert: %v", err)
+		return
+	}
+	if err := s.AddAlert("Slack Infra", "slack", map[string]string{"url": "https://hooks.slack.com/services/DEMO/WEBHOOK"}); err != nil {
+		log.Printf("demo seed: add alert: %v", err)
+		return
+	}
+	if err := s.AddAlert("Email Oncall", "email", map[string]string{
 		"host": "smtp.example.com", "port": "587",
 		"user": "oncall@example.com", "pass": "replace-me",
 		"from": "oncall@example.com", "to": "team@example.com",
-	})
+	}); err != nil {
+		log.Printf("demo seed: add alert: %v", err)
+		return
+	}
 
 	alerts, _ := s.GetAllAlerts()
 	alertID := 0
@@ -355,16 +365,23 @@ func seedDemoData(s store.Store) {
 		alertID = alerts[0].ID
 	}
 
-	s.AddSite(models.Site{Name: "Google", URL: "https://www.google.com", Type: "http", Interval: 30, AlertID: alertID, CheckSSL: true, ExpiryThreshold: 14, MaxRetries: 2})
-	s.AddSite(models.Site{Name: "GitHub", URL: "https://github.com", Type: "http", Interval: 30, AlertID: alertID, CheckSSL: true, ExpiryThreshold: 7, MaxRetries: 3})
-	s.AddSite(models.Site{Name: "Cloudflare DNS", URL: "https://1.1.1.1", Type: "http", Interval: 60, AlertID: alertID, ExpiryThreshold: 7, MaxRetries: 1})
-	s.AddSite(models.Site{Name: "JSON Placeholder", URL: "https://jsonplaceholder.typicode.com/posts/1", Type: "http", Interval: 45, AlertID: alertID, ExpiryThreshold: 7, MaxRetries: 2})
-	s.AddSite(models.Site{Name: "Nonexistent Site", URL: "https://this-domain-does-not-exist-12345.com", Type: "http", Interval: 30, AlertID: alertID, ExpiryThreshold: 7, MaxRetries: 3})
-	s.AddSite(models.Site{Name: "Bad Port", URL: "https://localhost:19999", Type: "http", Interval: 30, ExpiryThreshold: 7, MaxRetries: 1})
-	s.AddSite(models.Site{Name: "Backup Cron", Type: "push", Interval: 300, AlertID: alertID, ExpiryThreshold: 7})
-	s.AddSite(models.Site{Name: "DB Healthcheck", Type: "push", Interval: 120, AlertID: alertID, ExpiryThreshold: 7})
-	s.AddSite(models.Site{Name: "Gateway", Type: "ping", Interval: 30, AlertID: alertID, Hostname: "10.0.0.1", Timeout: 5, ExpiryThreshold: 7})
-	s.AddSite(models.Site{Name: "SSH Server", Type: "port", Interval: 60, AlertID: alertID, Hostname: "10.0.0.1", Port: 22, Timeout: 5, ExpiryThreshold: 7})
+	demoSites := []models.Site{
+		{Name: "Google", URL: "https://www.google.com", Type: "http", Interval: 30, AlertID: alertID, CheckSSL: true, ExpiryThreshold: 14, MaxRetries: 2},
+		{Name: "GitHub", URL: "https://github.com", Type: "http", Interval: 30, AlertID: alertID, CheckSSL: true, ExpiryThreshold: 7, MaxRetries: 3},
+		{Name: "Cloudflare DNS", URL: "https://1.1.1.1", Type: "http", Interval: 60, AlertID: alertID, ExpiryThreshold: 7, MaxRetries: 1},
+		{Name: "JSON Placeholder", URL: "https://jsonplaceholder.typicode.com/posts/1", Type: "http", Interval: 45, AlertID: alertID, ExpiryThreshold: 7, MaxRetries: 2},
+		{Name: "Nonexistent Site", URL: "https://this-domain-does-not-exist-12345.com", Type: "http", Interval: 30, AlertID: alertID, ExpiryThreshold: 7, MaxRetries: 3},
+		{Name: "Bad Port", URL: "https://localhost:19999", Type: "http", Interval: 30, ExpiryThreshold: 7, MaxRetries: 1},
+		{Name: "Backup Cron", Type: "push", Interval: 300, AlertID: alertID, ExpiryThreshold: 7},
+		{Name: "DB Healthcheck", Type: "push", Interval: 120, AlertID: alertID, ExpiryThreshold: 7},
+		{Name: "Gateway", Type: "ping", Interval: 30, AlertID: alertID, Hostname: "10.0.0.1", Timeout: 5, ExpiryThreshold: 7},
+		{Name: "SSH Server", Type: "port", Interval: 60, AlertID: alertID, Hostname: "10.0.0.1", Port: 22, Timeout: 5, ExpiryThreshold: 7},
+	}
+	for _, site := range demoSites {
+		if err := s.AddSite(site); err != nil {
+			log.Printf("demo seed: add site %q: %v", site.Name, err)
+		}
+	}
 }
 
 func isKeyAllowed(db store.Store, incomingKey ssh.PublicKey) bool {

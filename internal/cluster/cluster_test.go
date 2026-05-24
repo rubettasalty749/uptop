@@ -16,7 +16,6 @@ import (
 // --- Mock Store (minimal, for monitor.NewEngine) ---
 
 type mockStore struct {
-	mu    sync.Mutex
 	sites []models.Site
 }
 

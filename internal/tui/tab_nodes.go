@@ -2,8 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"go-upkeep/internal/models"
-	"strings"
 	"time"
 )
 
@@ -70,27 +68,4 @@ func fmtNodeLastSeen(t time.Time) string {
 		return fmt.Sprintf("%dm ago", int(ago.Minutes()))
 	}
 	return fmt.Sprintf("%dh ago", int(ago.Hours()))
-}
-
-func fmtProbeRegions(site models.Site, probeResults map[string]probeStatus) string {
-	if len(probeResults) == 0 {
-		return subtleStyle.Render("—")
-	}
-	var parts []string
-	for region, status := range probeResults {
-		short := region
-		if len(short) > 6 {
-			short = short[:6]
-		}
-		if status.isUp {
-			parts = append(parts, specialStyle.Render(short+":UP"))
-		} else {
-			parts = append(parts, dangerStyle.Render(short+":DN"))
-		}
-	}
-	return strings.Join(parts, " ")
-}
-
-type probeStatus struct {
-	isUp bool
 }

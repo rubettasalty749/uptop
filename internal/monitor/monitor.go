@@ -51,7 +51,7 @@ func NewEngine(s store.Store) *Engine {
 			Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: false}},
 		},
 		insecureClient: &http.Client{
-			Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+			Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, //nolint:gosec // intentional for IgnoreTLS sites
 		},
 	}
 }
@@ -279,7 +279,7 @@ func (e *Engine) ToggleSitePause(id int) bool {
 
 func (e *Engine) monitorRoutine(ctx context.Context, id int) {
 	// Stagger initial check to avoid thundering herd on startup
-	stagger := time.Duration(rand.IntN(3000)) * time.Millisecond
+	stagger := time.Duration(rand.IntN(3000)) * time.Millisecond //nolint:gosec // non-security jitter
 	select {
 	case <-time.After(stagger):
 	case <-ctx.Done():
@@ -323,7 +323,7 @@ func (e *Engine) monitorRoutine(ctx context.Context, id int) {
 		if interval < 5 {
 			interval = 5
 		}
-		jitter := time.Duration(rand.IntN(interval*100)) * time.Millisecond
+		jitter := time.Duration(rand.IntN(interval*100)) * time.Millisecond //nolint:gosec // non-security jitter
 		select {
 		case <-time.After(time.Duration(interval)*time.Second + jitter):
 		case <-ctx.Done():

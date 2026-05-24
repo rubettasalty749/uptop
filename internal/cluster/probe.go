@@ -33,7 +33,7 @@ func RunProbe(ctx context.Context, cfg ProbeConfig) error {
 		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: false}},
 	}
 	insecureClient := &http.Client{
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, //nolint:gosec // intentional for IgnoreTLS sites
 	}
 
 	if err := probeRegister(ctx, apiClient, cfg); err != nil {
@@ -85,7 +85,7 @@ func probeRegister(ctx context.Context, client *http.Client, cfg ProbeConfig) er
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("register returned %d", resp.StatusCode)
 	}
@@ -127,10 +127,11 @@ func probeExecuteChecks(ctx context.Context, sites []models.Site, strict, insecu
 	sem := make(chan struct{}, 10)
 	var wg sync.WaitGroup
 
+loop:
 	for _, site := range sites {
 		select {
 		case <-ctx.Done():
-			break
+			break loop
 		default:
 		}
 		wg.Add(1)
@@ -171,7 +172,7 @@ func probeReportResults(ctx context.Context, client *http.Client, cfg ProbeConfi
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("results returned %d", resp.StatusCode)
 	}

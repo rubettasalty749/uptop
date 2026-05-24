@@ -264,20 +264,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
 				if m.state == stateLogs {
 					if msg.Button == tea.MouseButtonWheelUp {
-						m.logViewport.LineUp(3)
+						m.logViewport.ScrollUp(3)
 					} else {
-						m.logViewport.LineDown(3)
+						m.logViewport.ScrollDown(3)
 					}
 					return m, nil
 				}
 				listLen := len(m.sites)
-				if m.currentTab == 1 {
+				switch m.currentTab {
+				case 1:
 					listLen = len(m.alerts)
-				} else if m.currentTab == 3 {
+				case 3:
 					listLen = len(m.nodes)
-				} else if m.currentTab == 4 {
+				case 4:
 					listLen = len(m.maintenanceWindows)
-				} else if m.currentTab == 5 {
+				case 5:
 					listLen = len(m.users)
 				}
 				if msg.Button == tea.MouseButtonWheelUp {
@@ -364,7 +365,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "up", "k":
 				if m.state == stateLogs {
-					m.logViewport.LineUp(1)
+					m.logViewport.ScrollUp(1)
 				} else if m.cursor > 0 {
 					m.cursor--
 					if m.cursor < m.tableOffset {
@@ -373,7 +374,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "down", "j":
 				if m.state == stateLogs {
-					m.logViewport.LineDown(1)
+					m.logViewport.ScrollDown(1)
 				} else {
 					max := len(m.sites) - 1
 					if m.currentTab == 1 {
@@ -645,13 +646,14 @@ func (m *Model) refreshData() {
 	m.logViewport.SetContent(strings.Join(m.engine.GetLogs(), "\n"))
 
 	listLen := len(m.sites)
-	if m.currentTab == 1 {
+	switch m.currentTab {
+	case 1:
 		listLen = len(m.alerts)
-	} else if m.currentTab == 3 {
+	case 3:
 		listLen = len(m.nodes)
-	} else if m.currentTab == 4 {
+	case 4:
 		listLen = len(m.maintenanceWindows)
-	} else if m.currentTab == 5 {
+	case 5:
 		listLen = len(m.users)
 	}
 	if listLen > 0 && m.cursor >= listLen {
@@ -709,11 +711,12 @@ func (m Model) View() string {
 	switch m.state {
 	case stateConfirmDelete:
 		kind := "monitor"
-		if m.deleteTab == 1 {
+		switch m.deleteTab {
+		case 1:
 			kind = "alert"
-		} else if m.deleteTab == 4 {
+		case 4:
 			kind = "maintenance window"
-		} else if m.deleteTab == 5 {
+		case 5:
 			kind = "user"
 		}
 		msg := dangerStyle.Render(fmt.Sprintf("Delete %s \"%s\"?", kind, m.deleteName))

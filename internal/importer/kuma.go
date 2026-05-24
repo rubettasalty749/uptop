@@ -177,7 +177,7 @@ func convertKumaMonitor(m KumaMonitor, alertMap map[int]int) models.Site {
 
 	for nidStr := range m.NotificationIDs {
 		var nid int
-		fmt.Sscanf(nidStr, "%d", &nid)
+		_, _ = fmt.Sscanf(nidStr, "%d", &nid) //nolint:errcheck
 		if upkeepID, ok := alertMap[nid]; ok {
 			site.AlertID = upkeepID
 			break

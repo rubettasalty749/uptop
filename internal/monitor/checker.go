@@ -131,7 +131,7 @@ func runPortCheck(site models.Site) CheckResult {
 	if err != nil {
 		return CheckResult{SiteID: site.ID, Status: "DOWN", LatencyNs: latency.Nanoseconds()}
 	}
-	conn.Close()
+	_ = conn.Close()
 	return CheckResult{SiteID: site.ID, Status: "UP", LatencyNs: latency.Nanoseconds()}
 }
 

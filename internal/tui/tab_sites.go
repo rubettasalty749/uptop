@@ -301,10 +301,10 @@ func fmtStatus(status string, paused bool, inMaint bool) string {
 	if inMaint {
 		return maintStyle.Render("MAINT")
 	}
-	switch {
-	case status == "DOWN" || status == "SSL EXP":
+	switch status {
+	case "DOWN", "SSL EXP":
 		return dangerStyle.Render(status)
-	case status == "PENDING":
+	case "PENDING":
 		return subtleStyle.Render(status)
 	default:
 		return specialStyle.Render(status)
@@ -721,7 +721,7 @@ func (m Model) viewDetailPanel() string {
 	b.WriteString(breadcrumb + "\n\n")
 
 	row := func(label, value string) {
-		b.WriteString(fmt.Sprintf("  %-16s %s\n", subtleStyle.Render(label), value))
+		fmt.Fprintf(&b, "  %-16s %s\n", subtleStyle.Render(label), value)
 	}
 
 	row("Status", fmtStatus(site.Status, site.Paused, m.isMonitorInMaintenance(site.ID)))
@@ -780,7 +780,7 @@ func (m Model) viewDetailPanel() string {
 			}
 			latency := time.Duration(result.LatencyNs).Milliseconds()
 			ago := time.Since(result.CheckedAt).Truncate(time.Second)
-			b.WriteString(fmt.Sprintf("  %-14s %s  %dms  %s ago\n", nodeID, status, latency, ago))
+			fmt.Fprintf(&b, "  %-14s %s  %dms  %s ago\n", nodeID, status, latency, ago)
 		}
 	}
 
@@ -795,9 +795,9 @@ func (m Model) viewDetailPanel() string {
 					up++
 				}
 			}
-			b.WriteString(fmt.Sprintf("\n  %s %d/%d checks up",
+			fmt.Fprintf(&b, "\n  %s %d/%d checks up",
 				subtleStyle.Render("Heartbeats"),
-				up, len(hist.Statuses)))
+				up, len(hist.Statuses))
 		}
 	} else {
 		b.WriteString("  " + latencySparkline(hist.Latencies, sparkWidth))
@@ -814,10 +814,10 @@ func (m Model) viewDetailPanel() string {
 				}
 			}
 			avg := total / time.Duration(len(hist.Latencies))
-			b.WriteString(fmt.Sprintf("\n  %s %dms  %s %dms  %s %dms",
+			fmt.Fprintf(&b, "\n  %s %dms  %s %dms  %s %dms",
 				subtleStyle.Render("Min"), minL.Milliseconds(),
 				subtleStyle.Render("Avg"), avg.Milliseconds(),
-				subtleStyle.Render("Max"), maxL.Milliseconds()))
+				subtleStyle.Render("Max"), maxL.Milliseconds())
 		}
 	}
 
