@@ -2,7 +2,7 @@
 
 Self-hosted uptime monitor with a TUI you can access over SSH. No browser, no install on the client — just `ssh -p 23234 your-server`.
 
-Originally forked from [RDGames/go-upkeep](https://github.com/RDGames/go-upkeep). This is an independent fork with significant additions.
+Built on the foundation of [RDGames/go-upkeep](https://github.com/RDGames/go-upkeep).
 
 ## What it does
 
@@ -27,6 +27,25 @@ Seed some demo data to see it in action:
 ```bash
 go run cmd/goupkeep/main.go -demo
 ```
+
+## Install
+
+### From source
+
+```bash
+go install gitea.lerkolabs.com/lerko/uptime/cmd/goupkeep@latest
+```
+
+### Docker
+
+```bash
+docker pull lerko/go-upkeep:latest
+docker run -p 23234:23234 -p 8080:8080 -v ./data:/data lerko/go-upkeep
+```
+
+### Binary
+
+Download from [Releases](https://gitea.lerkolabs.com/lerko/uptime/releases).
 
 ## Config as code
 
@@ -84,6 +103,17 @@ First run: attach to the container (`docker attach go-upkeep`), go to the Users 
 | `UPKEEP_PEER_URL` | | Leader URL for follower nodes |
 | `UPKEEP_CLUSTER_SECRET` | | Shared key for cluster + API auth |
 | `UPKEEP_INSECURE_SKIP_VERIFY` | `false` | Skip TLS verification for checks |
+
+## Migrating from Uptime Kuma
+
+Export your Kuma backup JSON, then:
+
+```bash
+curl -X POST http://localhost:8080/api/import/kuma \
+  -H "X-Upkeep-Secret: your-secret" \
+  -H "Content-Type: application/json" \
+  -d @kuma-backup.json
+```
 
 ## License
 

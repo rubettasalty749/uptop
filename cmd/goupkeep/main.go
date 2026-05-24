@@ -27,6 +27,12 @@ import (
 	"github.com/mattn/go-isatty"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	log.SetOutput(os.Stderr)
 
@@ -38,9 +44,20 @@ func main() {
 		case "export":
 			runExport(os.Args[2:])
 			return
+		case "version", "--version", "-v":
+			printVersion()
+			return
 		}
 	}
 	runServe(os.Args[1:])
+}
+
+func printVersion() {
+	if version == "dev" {
+		fmt.Println("go-upkeep dev")
+	} else {
+		fmt.Printf("go-upkeep %s (%s, %s)\n", version, commit, date)
+	}
 }
 
 func envOrDefault(key, fallback string) string {

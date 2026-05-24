@@ -6,7 +6,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 ENV CGO_ENABLED=1
-RUN go build -ldflags="-s -w" -o go-upkeep ./cmd/goupkeep/main.go
+ARG VERSION=dev
+ARG COMMIT=none
+ARG BUILD_DATE=unknown
+RUN go build -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${BUILD_DATE}" -o go-upkeep ./cmd/goupkeep/main.go
 
 # --- Stage 2: Runner ---
 FROM alpine:latest
