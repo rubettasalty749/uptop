@@ -64,6 +64,7 @@ func (m *mockStore) DeleteMaintenanceWindow(int) error                   { retur
 func (m *mockStore) IsMonitorInMaintenance(int) (bool, error)            { return false, nil }
 func (m *mockStore) GetPreference(string) (string, error)                { return "", nil }
 func (m *mockStore) SetPreference(string, string) error                  { return nil }
+func (m *mockStore) Close() error                                        { return nil }
 
 func TestMetricsHandler(t *testing.T) {
 	ms := &mockStore{

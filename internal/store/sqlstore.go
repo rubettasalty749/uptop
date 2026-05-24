@@ -29,12 +29,16 @@ func (s *SQLStore) q(query string) string {
 	return rewritePlaceholders(query, s.dollar)
 }
 
-func generateToken() string {
+func generateToken() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand failed: " + err.Error())
+		return "", fmt.Errorf("crypto/rand failed: %w", err)
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
+}
+
+func (s *SQLStore) Close() error {
+	return s.db.Close()
 }
 
 func (s *SQLStore) Init() error {
@@ -77,7 +81,11 @@ func (s *SQLStore) GetSites() ([]models.Site, error) {
 func (s *SQLStore) AddSite(site models.Site) error {
 	token := ""
 	if site.Type == "push" {
-		token = generateToken()
+		var err error
+		token, err = generateToken()
+		if err != nil {
+			return fmt.Errorf("generate push token: %w", err)
+		}
 	}
 	_, err := s.db.Exec(s.q("INSERT INTO sites (name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries, hostname, port, timeout, method, description, parent_id, accepted_codes, dns_resolve_type, dns_server, ignore_tls, paused, regions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
 		site.Name, site.URL, site.Type, token, site.Interval, site.AlertID, site.CheckSSL, site.ExpiryThreshold, site.MaxRetries,
@@ -89,7 +97,11 @@ func (s *SQLStore) UpdateSite(site models.Site) error {
 	var existingToken string
 	s.db.QueryRow(s.q("SELECT token FROM sites WHERE id=?"), site.ID).Scan(&existingToken)
 	if site.Type == "push" && existingToken == "" {
-		existingToken = generateToken()
+		var err error
+		existingToken, err = generateToken()
+		if err != nil {
+			return fmt.Errorf("generate push token: %w", err)
+		}
 	}
 	_, err := s.db.Exec(s.q("UPDATE sites SET name=?, url=?, type=?, token=?, interval=?, alert_id=?, check_ssl=?, threshold=?, max_retries=?, hostname=?, port=?, timeout=?, method=?, description=?, parent_id=?, accepted_codes=?, dns_resolve_type=?, dns_server=?, ignore_tls=?, paused=?, regions=? WHERE id=?"),
 		site.Name, site.URL, site.Type, existingToken, site.Interval, site.AlertID, site.CheckSSL, site.ExpiryThreshold, site.MaxRetries,
@@ -132,7 +144,9 @@ func (s *SQLStore) GetAlertByName(name string) (models.AlertConfig, error) {
 	if err != nil {
 		return a, err
 	}
-	json.Unmarshal([]byte(settingsJSON), &a.Settings)
+	if err := json.Unmarshal([]byte(settingsJSON), &a.Settings); err != nil {
+		return a, fmt.Errorf("unmarshal alert settings: %w", err)
+	}
 	return a, nil
 }
 
@@ -171,7 +185,9 @@ func (s *SQLStore) GetAllAlerts() ([]models.AlertConfig, error) {
 		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &settingsJSON); err != nil {
 			return alerts, err
 		}
-		json.Unmarshal([]byte(settingsJSON), &a.Settings)
+		if err := json.Unmarshal([]byte(settingsJSON), &a.Settings); err != nil {
+			return alerts, fmt.Errorf("unmarshal alert settings for %q: %w", a.Name, err)
+		}
 		alerts = append(alerts, a)
 	}
 	return alerts, rows.Err()
@@ -184,7 +200,9 @@ func (s *SQLStore) GetAlert(id int) (models.AlertConfig, error) {
 	if err != nil {
 		return a, err
 	}
-	json.Unmarshal([]byte(settingsJSON), &a.Settings)
+	if err := json.Unmarshal([]byte(settingsJSON), &a.Settings); err != nil {
+		return a, fmt.Errorf("unmarshal alert settings: %w", err)
+	}
 	return a, nil
 }
 

@@ -64,4 +64,7 @@ type Store interface {
 	// Backup & Restore
 	ExportData() (models.Backup, error)
 	ImportData(data models.Backup) error
+
+	// Lifecycle
+	Close() error
 }

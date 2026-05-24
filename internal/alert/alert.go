@@ -2,6 +2,7 @@ package alert
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"go-upkeep/internal/models"
@@ -15,7 +16,7 @@ import (
 var alertClient = &http.Client{Timeout: 10 * time.Second}
 
 type Provider interface {
-	Send(title, message string) error
+	Send(ctx context.Context, title, message string) error
 }
 
 type PayloadFunc func(title, message string) ([]byte, error)
@@ -25,12 +26,17 @@ type HTTPProvider struct {
 	Payload PayloadFunc
 }
 
-func (h *HTTPProvider) Send(title, message string) error {
+func (h *HTTPProvider) Send(ctx context.Context, title, message string) error {
 	body, err := h.Payload(title, message)
 	if err != nil {
 		return err
 	}
-	resp, err := alertClient.Post(h.URL, "application/json", bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", h.URL, bytes.NewBuffer(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := alertClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -170,7 +176,12 @@ type EmailProvider struct {
 	Host, Port, User, Pass, To, From string
 }
 
-func (e *EmailProvider) Send(title, message string) error {
+func (e *EmailProvider) Send(ctx context.Context, title, message string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
 	auth := smtp.PlainAuth("", e.User, e.Pass, e.Host)
 	msg := []byte("To: " + e.To + "\r\n" +
 		"Subject: Go-Upkeep: " + title + "\r\n" +
@@ -187,9 +198,9 @@ type NtfyProvider struct {
 	Password  string
 }
 
-func (n *NtfyProvider) Send(title, message string) error {
+func (n *NtfyProvider) Send(ctx context.Context, title, message string) error {
 	url := strings.TrimRight(n.ServerURL, "/") + "/" + n.Topic
-	req, err := http.NewRequest("POST", url, strings.NewReader(message))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(message))
 	if err != nil {
 		return err
 	}
