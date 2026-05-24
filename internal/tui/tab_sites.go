@@ -634,6 +634,9 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				Placeholder("0").
 				Value(&m.siteFormData.Retries).
 				Validate(func(s string) error {
+					if m.siteFormData.SiteType == "group" {
+						return nil
+					}
 					v, err := strconv.Atoi(s)
 					if err != nil {
 						return fmt.Errorf("must be a number")
