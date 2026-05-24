@@ -509,7 +509,7 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				Description("Required for HTTP monitors").
 				Value(&m.siteFormData.URL).
 				Validate(func(s string) error {
-					if m.siteFormData.SiteType == "push" || m.siteFormData.SiteType == "group" {
+					if m.siteFormData.SiteType != "http" {
 						return nil
 					}
 					if s == "" {
@@ -555,12 +555,15 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				Description("Target port for TCP port monitors").
 				Value(&m.siteFormData.Port).
 				Validate(func(s string) error {
+					if m.siteFormData.SiteType != "port" {
+						return nil
+					}
 					v, err := strconv.Atoi(s)
 					if err != nil {
 						return fmt.Errorf("must be a number")
 					}
-					if v < 0 || v > 65535 {
-						return fmt.Errorf("port must be 0-65535")
+					if v < 1 || v > 65535 {
+						return fmt.Errorf("port must be 1-65535")
 					}
 					return nil
 				}),
@@ -615,6 +618,9 @@ func (m *Model) initSiteHuhForm() tea.Cmd {
 				Placeholder("7").
 				Value(&m.siteFormData.Threshold).
 				Validate(func(s string) error {
+					if !m.siteFormData.CheckSSL {
+						return nil
+					}
 					v, err := strconv.Atoi(s)
 					if err != nil {
 						return fmt.Errorf("must be a number")
