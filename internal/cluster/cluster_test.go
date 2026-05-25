@@ -3,8 +3,8 @@ package cluster
 import (
 	"context"
 	"encoding/json"
-	"go-upkeep/internal/models"
-	"go-upkeep/internal/monitor"
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
 	"net/http"
 	"net/http/httptest"
 	"sync"

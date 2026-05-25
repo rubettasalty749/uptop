@@ -2,8 +2,8 @@ package config
 
 import (
 	"fmt"
-	"go-upkeep/internal/models"
-	"go-upkeep/internal/store"
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/store"
 	"os"
 	"sort"
 

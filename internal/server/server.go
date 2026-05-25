@@ -4,11 +4,11 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
-	"go-upkeep/internal/importer"
-	"go-upkeep/internal/metrics"
-	"go-upkeep/internal/models"
-	"go-upkeep/internal/monitor"
-	"go-upkeep/internal/store"
+	"gitea.lerkolabs.com/lerko/uptop/internal/importer"
+	"gitea.lerkolabs.com/lerko/uptop/internal/metrics"
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
+	"gitea.lerkolabs.com/lerko/uptop/internal/store"
 	"html/template"
 	"log"
 	"net/http"
@@ -59,7 +59,7 @@ var statusTpl = template.Must(template.New("status").Parse(`
 		<div id="summary" class="summary"></div>
 		<div id="stale" class="stale-bar"></div>
 		<div id="cards"></div>
-		<div style="text-align: center; margin-top: 40px; color: #565f89; font-size: 0.8em;">Powered by Go-Upkeep</div>
+		<div style="text-align: center; margin-top: 40px; color: #565f89; font-size: 0.8em;">Powered by uptop</div>
 	</div>
 	<script>
 		var lastUpdate = null;
@@ -161,7 +161,7 @@ type ServerConfig struct {
 
 func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 	if cfg.ClusterKey == "" {
-		fmt.Println("WARNING: No UPKEEP_CLUSTER_SECRET set. Cluster API endpoints are unauthenticated.")
+		fmt.Println("WARNING: No UPTOP_CLUSTER_SECRET set. Cluster API endpoints are unauthenticated.")
 	}
 	mux := http.NewServeMux()
 
@@ -193,7 +193,7 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 	// 3. Config Export
 	mux.HandleFunc("/api/backup/export", func(w http.ResponseWriter, r *http.Request) {
 		if cfg.ClusterKey == "" || !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
-			http.Error(w, "Unauthorized: UPKEEP_CLUSTER_SECRET required", http.StatusUnauthorized)
+			http.Error(w, "Unauthorized: UPTOP_CLUSTER_SECRET required", http.StatusUnauthorized)
 			return
 		}
 		data, err := s.ExportData()

@@ -29,7 +29,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/go-upkeep
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/uptop
           tags: |
             # This turns git tag "v1.0.0" into docker tag "1.0.0"
             type=semver,pattern={{version}}

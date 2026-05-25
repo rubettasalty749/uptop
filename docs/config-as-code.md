@@ -7,13 +7,13 @@ Define your monitors and alerts in a YAML file. Version control them, copy them 
 Export what you already have:
 
 ```bash
-goupkeep export -o monitors.yaml
+uptop export -o monitors.yaml
 ```
 
 That gives you a working file you can edit and re-apply:
 
 ```bash
-goupkeep apply -f monitors.yaml
+uptop apply -f monitors.yaml
 ```
 
 That's it. Apply only creates or updates — it won't delete anything unless you tell it to.
@@ -184,34 +184,34 @@ All 9 providers work in the YAML. The `settings` map is different per type.
 
 **Export current state:**
 ```bash
-goupkeep export -o monitors.yaml      # to a file
-goupkeep export                        # to stdout
+uptop export -o monitors.yaml      # to a file
+uptop export                        # to stdout
 ```
 
 **Apply a config:**
 ```bash
-goupkeep apply -f monitors.yaml
+uptop apply -f monitors.yaml
 ```
 
 **See what would change first:**
 ```bash
-goupkeep apply -f monitors.yaml --dry-run
+uptop apply -f monitors.yaml --dry-run
 ```
 
 **Delete monitors not in the YAML:**
 ```bash
-goupkeep apply -f monitors.yaml --prune
+uptop apply -f monitors.yaml --prune
 ```
 
 Without `--prune`, apply never deletes anything. It only creates and updates.
 
 **Pointing at a different database:**
 ```bash
-goupkeep export -db-type postgres -dsn "host=localhost dbname=upkeep sslmode=disable"
-goupkeep apply -f monitors.yaml -db-type postgres -dsn "..."
+uptop export -db-type postgres -dsn "host=localhost dbname=uptop sslmode=disable"
+uptop apply -f monitors.yaml -db-type postgres -dsn "..."
 ```
 
-Both commands respect the `UPKEEP_DB_TYPE` and `UPKEEP_DB_DSN` environment variables too.
+Both commands respect the `UPTOP_DB_TYPE` and `UPTOP_DB_DSN` environment variables too.
 
 ## How apply works
 
@@ -230,15 +230,15 @@ If something fails mid-apply, just fix the issue and run it again. It picks up w
 
 ```bash
 # set up your monitors in the TUI first, then export
-goupkeep export -o monitors.yaml
+uptop export -o monitors.yaml
 
 # commit it
 git add monitors.yaml && git commit -m "add monitor config"
 
 # deploy to another instance
 scp monitors.yaml prod-server:
-ssh prod-server goupkeep apply -f monitors.yaml
+ssh prod-server uptop apply -f monitors.yaml
 
 # or just keep it as a backup you can restore from
-goupkeep apply -f monitors.yaml
+uptop apply -f monitors.yaml
 ```

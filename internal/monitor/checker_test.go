@@ -2,7 +2,7 @@ package monitor
 
 import (
 	"crypto/tls"
-	"go-upkeep/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 	"net"
 	"net/http"
 	"net/http/httptest"

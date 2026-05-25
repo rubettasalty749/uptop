@@ -26,17 +26,14 @@ go.work
 
 # End of https://www.toptal.com/developers/gitignore/api/go
 
-/goupkeep
-upkeep.db
+/uptop
+uptop.db
 
 .ssh
 
 authorized_keys
 
 tmp
-
-# Old repo
-/go-upkeep/
 
 *.local.json
 *.local.md

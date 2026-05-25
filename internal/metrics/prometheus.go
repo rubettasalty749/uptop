@@ -2,8 +2,8 @@ package metrics
 
 import (
 	"fmt"
-	"go-upkeep/internal/models"
-	"go-upkeep/internal/monitor"
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
 	"net/http"
 	"sort"
 	"strings"
@@ -16,74 +16,74 @@ func Handler(eng *monitor.Engine) http.HandlerFunc {
 
 		var b strings.Builder
 
-		writeHelp(&b, "upkeep_monitor_up", "gauge", "Whether the monitor is up (1) or down (0).")
+		writeHelp(&b, "uptop_monitor_up", "gauge", "Whether the monitor is up (1) or down (0).")
 		for _, s := range sites {
 			val := 0
 			if s.Status == "UP" {
 				val = 1
 			}
-			writeGauge(&b, "upkeep_monitor_up", labels(s), float64(val))
+			writeGauge(&b, "uptop_monitor_up", labels(s), float64(val))
 		}
 
-		writeHelp(&b, "upkeep_monitor_latency_seconds", "gauge", "Last check latency in seconds.")
+		writeHelp(&b, "uptop_monitor_latency_seconds", "gauge", "Last check latency in seconds.")
 		for _, s := range sites {
-			writeGauge(&b, "upkeep_monitor_latency_seconds", labels(s), s.Latency.Seconds())
+			writeGauge(&b, "uptop_monitor_latency_seconds", labels(s), s.Latency.Seconds())
 		}
 
-		writeHelp(&b, "upkeep_monitor_status_code", "gauge", "HTTP response status code of the last check.")
+		writeHelp(&b, "uptop_monitor_status_code", "gauge", "HTTP response status code of the last check.")
 		for _, s := range sites {
 			if s.Type != "http" {
 				continue
 			}
-			writeGauge(&b, "upkeep_monitor_status_code", labels(s), float64(s.StatusCode))
+			writeGauge(&b, "uptop_monitor_status_code", labels(s), float64(s.StatusCode))
 		}
 
-		writeHelp(&b, "upkeep_monitor_check_timestamp_seconds", "gauge", "Unix timestamp of the last check.")
+		writeHelp(&b, "uptop_monitor_check_timestamp_seconds", "gauge", "Unix timestamp of the last check.")
 		for _, s := range sites {
 			if s.LastCheck.IsZero() {
 				continue
 			}
-			writeGauge(&b, "upkeep_monitor_check_timestamp_seconds", labels(s), float64(s.LastCheck.Unix()))
+			writeGauge(&b, "uptop_monitor_check_timestamp_seconds", labels(s), float64(s.LastCheck.Unix()))
 		}
 
-		writeHelp(&b, "upkeep_monitor_paused", "gauge", "Whether the monitor is paused (1) or active (0).")
+		writeHelp(&b, "uptop_monitor_paused", "gauge", "Whether the monitor is paused (1) or active (0).")
 		for _, s := range sites {
 			val := 0
 			if s.Paused {
 				val = 1
 			}
-			writeGauge(&b, "upkeep_monitor_paused", labels(s), float64(val))
+			writeGauge(&b, "uptop_monitor_paused", labels(s), float64(val))
 		}
 
-		writeHelp(&b, "upkeep_monitor_maintenance", "gauge", "Whether the monitor is in a maintenance window (1) or not (0).")
+		writeHelp(&b, "uptop_monitor_maintenance", "gauge", "Whether the monitor is in a maintenance window (1) or not (0).")
 		for _, s := range sites {
 			val := 0
 			if eng.GetDisplayStatus(s) == "MAINT" {
 				val = 1
 			}
-			writeGauge(&b, "upkeep_monitor_maintenance", labels(s), float64(val))
+			writeGauge(&b, "uptop_monitor_maintenance", labels(s), float64(val))
 		}
 
-		writeHelp(&b, "upkeep_monitor_cert_expiry_timestamp_seconds", "gauge", "Unix timestamp when the SSL certificate expires.")
+		writeHelp(&b, "uptop_monitor_cert_expiry_timestamp_seconds", "gauge", "Unix timestamp when the SSL certificate expires.")
 		for _, s := range sites {
 			if !s.HasSSL || s.CertExpiry.IsZero() {
 				continue
 			}
-			writeGauge(&b, "upkeep_monitor_cert_expiry_timestamp_seconds", labels(s), float64(s.CertExpiry.Unix()))
+			writeGauge(&b, "uptop_monitor_cert_expiry_timestamp_seconds", labels(s), float64(s.CertExpiry.Unix()))
 		}
 
-		writeHelp(&b, "upkeep_monitor_checks_total", "counter", "Total number of checks performed.")
-		writeHelp(&b, "upkeep_monitor_checks_up_total", "counter", "Total number of successful checks.")
+		writeHelp(&b, "uptop_monitor_checks_total", "counter", "Total number of checks performed.")
+		writeHelp(&b, "uptop_monitor_checks_up_total", "counter", "Total number of successful checks.")
 		for _, s := range sites {
 			h, ok := eng.GetHistory(s.ID)
 			if !ok {
 				continue
 			}
-			writeGauge(&b, "upkeep_monitor_checks_total", labels(s), float64(h.TotalChecks))
-			writeGauge(&b, "upkeep_monitor_checks_up_total", labels(s), float64(h.UpChecks))
+			writeGauge(&b, "uptop_monitor_checks_total", labels(s), float64(h.TotalChecks))
+			writeGauge(&b, "uptop_monitor_checks_up_total", labels(s), float64(h.UpChecks))
 		}
 
-		writeHelp(&b, "upkeep_probe_up", "gauge", "Whether a probe node is online (1) or offline (0) based on last-seen time.")
+		writeHelp(&b, "uptop_probe_up", "gauge", "Whether a probe node is online (1) or offline (0) based on last-seen time.")
 		for _, site := range sites {
 			probeResults := eng.GetProbeResults(site.ID)
 			for nodeID, result := range probeResults {
@@ -92,7 +92,7 @@ func Handler(eng *monitor.Engine) http.HandlerFunc {
 					val = 1
 				}
 				nodeLabels := fmt.Sprintf(`id="%d",name="%s",node="%s"`, site.ID, escapeLabelValue(site.Name), escapeLabelValue(nodeID))
-				writeGauge(&b, "upkeep_probe_up", nodeLabels, float64(val))
+				writeGauge(&b, "uptop_probe_up", nodeLabels, float64(val))
 			}
 		}
 

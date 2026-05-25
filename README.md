@@ -1,4 +1,4 @@
-# Go-Upkeep
+# uptop
 
 Self-hosted uptime monitor with a TUI you can access over SSH. No browser, no install on the client — just `ssh -p 23234 your-server`.
 
@@ -18,14 +18,14 @@ Built on the foundation of [RDGames/go-upkeep](https://github.com/RDGames/go-upk
 ## Quick start
 
 ```bash
-go run cmd/goupkeep/main.go
+go run cmd/uptop/main.go
 ssh -p 23234 localhost
 ```
 
 Seed some demo data to see it in action:
 
 ```bash
-go run cmd/goupkeep/main.go -demo
+go run cmd/uptop/main.go -demo
 ```
 
 ## Install
@@ -33,34 +33,34 @@ go run cmd/goupkeep/main.go -demo
 ### From source
 
 ```bash
-go install gitea.lerkolabs.com/lerko/uptime/cmd/goupkeep@latest
+go install gitea.lerkolabs.com/lerko/uptop/cmd/uptop@latest
 ```
 
 ### Docker
 
 ```bash
-docker pull lerko/go-upkeep:latest
-docker run -p 23234:23234 -p 8080:8080 -v ./data:/data lerko/go-upkeep
+docker pull lerko/uptop:latest
+docker run -p 23234:23234 -p 8080:8080 -v ./data:/data lerko/uptop
 ```
 
 ### Binary
 
-Download from [Releases](https://gitea.lerkolabs.com/lerko/uptime/releases).
+Download from [Releases](https://gitea.lerkolabs.com/lerko/uptop/releases).
 
 ## Config as code
 
 Export your current monitors:
 
 ```bash
-goupkeep export -o monitors.yaml
+uptop export -o monitors.yaml
 ```
 
 Apply a config file:
 
 ```bash
-goupkeep apply -f monitors.yaml
-goupkeep apply -f monitors.yaml --dry-run   # see what would change
-goupkeep apply -f monitors.yaml --prune     # delete anything not in the YAML
+uptop apply -f monitors.yaml
+uptop apply -f monitors.yaml --dry-run   # see what would change
+uptop apply -f monitors.yaml --prune     # delete anything not in the YAML
 ```
 
 See [docs/config-as-code.md](docs/config-as-code.md) for the full reference.
@@ -81,28 +81,28 @@ services:
       - ./data:/data
       - ./ssh_keys:/app/.ssh
     environment:
-      - UPKEEP_DB_TYPE=sqlite
-      - UPKEEP_DB_DSN=/data/upkeep.db
-      - UPKEEP_STATUS_ENABLED=true
-      - UPKEEP_CLUSTER_SECRET=change-me
+      - UPTOP_DB_TYPE=sqlite
+      - UPTOP_DB_DSN=/data/uptop.db
+      - UPTOP_STATUS_ENABLED=true
+      - UPTOP_CLUSTER_SECRET=change-me
 ```
 
-First run: attach to the container (`docker attach go-upkeep`), go to the Users tab, add your SSH public key. Then detach with `Ctrl+P, Ctrl+Q` and connect normally over SSH.
+First run: attach to the container (`docker attach uptop`), go to the Users tab, add your SSH public key. Then detach with `Ctrl+P, Ctrl+Q` and connect normally over SSH.
 
 ## Environment variables
 
 | Variable | Default | What it does |
 |---|---|---|
-| `UPKEEP_PORT` | `23234` | SSH server port |
-| `UPKEEP_HTTP_PORT` | `8080` | HTTP server port (status page, push, metrics) |
-| `UPKEEP_DB_TYPE` | `sqlite` | `sqlite` or `postgres` |
-| `UPKEEP_DB_DSN` | `upkeep.db` | Database path or connection string |
-| `UPKEEP_STATUS_ENABLED` | `false` | Enable public status page |
-| `UPKEEP_STATUS_TITLE` | `System Status` | Status page title |
-| `UPKEEP_CLUSTER_MODE` | `leader` | `leader` or `follower` |
-| `UPKEEP_PEER_URL` | | Leader URL for follower nodes |
-| `UPKEEP_CLUSTER_SECRET` | | Shared key for cluster + API auth |
-| `UPKEEP_INSECURE_SKIP_VERIFY` | `false` | Skip TLS verification for checks |
+| `UPTOP_PORT` | `23234` | SSH server port |
+| `UPTOP_HTTP_PORT` | `8080` | HTTP server port (status page, push, metrics) |
+| `UPTOP_DB_TYPE` | `sqlite` | `sqlite` or `postgres` |
+| `UPTOP_DB_DSN` | `uptop.db` | Database path or connection string |
+| `UPTOP_STATUS_ENABLED` | `false` | Enable public status page |
+| `UPTOP_STATUS_TITLE` | `System Status` | Status page title |
+| `UPTOP_CLUSTER_MODE` | `leader` | `leader` or `follower` |
+| `UPTOP_PEER_URL` | | Leader URL for follower nodes |
+| `UPTOP_CLUSTER_SECRET` | | Shared key for cluster + API auth |
+| `UPTOP_INSECURE_SKIP_VERIFY` | `false` | Skip TLS verification for checks |
 
 ## Migrating from Uptime Kuma
 

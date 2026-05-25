@@ -2,7 +2,7 @@ package monitor
 
 import (
 	"context"
-	"go-upkeep/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 	"net"
 	"net/http"
 	"strconv"

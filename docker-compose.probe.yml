@@ -2,10 +2,10 @@ services:
   leader:
     build: .
     environment:
-      - UPKEEP_CLUSTER_MODE=leader
-      - UPKEEP_CLUSTER_SECRET=changeme
-      - UPKEEP_AGG_STRATEGY=any-down
-      - UPKEEP_STATUS_ENABLED=true
+      - UPTOP_CLUSTER_MODE=leader
+      - UPTOP_CLUSTER_SECRET=changeme
+      - UPTOP_AGG_STRATEGY=any-down
+      - UPTOP_STATUS_ENABLED=true
     ports:
       - "8080:8080"
       - "23234:23234"
@@ -13,23 +13,23 @@ services:
   probe-us-east:
     build: .
     environment:
-      - UPKEEP_CLUSTER_MODE=probe
-      - UPKEEP_NODE_ID=us-east-1
-      - UPKEEP_NODE_NAME=US East Probe
-      - UPKEEP_NODE_REGION=us-east
-      - UPKEEP_PEER_URL=http://leader:8080
-      - UPKEEP_CLUSTER_SECRET=changeme
+      - UPTOP_CLUSTER_MODE=probe
+      - UPTOP_NODE_ID=us-east-1
+      - UPTOP_NODE_NAME=US East Probe
+      - UPTOP_NODE_REGION=us-east
+      - UPTOP_PEER_URL=http://leader:8080
+      - UPTOP_CLUSTER_SECRET=changeme
     depends_on:
       - leader
 
   probe-eu-west:
     build: .
     environment:
-      - UPKEEP_CLUSTER_MODE=probe
-      - UPKEEP_NODE_ID=eu-west-1
-      - UPKEEP_NODE_NAME=EU West Probe
-      - UPKEEP_NODE_REGION=eu-west
-      - UPKEEP_PEER_URL=http://leader:8080
-      - UPKEEP_CLUSTER_SECRET=changeme
+      - UPTOP_CLUSTER_MODE=probe
+      - UPTOP_NODE_ID=eu-west-1
+      - UPTOP_NODE_NAME=EU West Probe
+      - UPTOP_NODE_REGION=eu-west
+      - UPTOP_PEER_URL=http://leader:8080
+      - UPTOP_CLUSTER_SECRET=changeme
     depends_on:
       - leader

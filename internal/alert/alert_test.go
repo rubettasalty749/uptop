@@ -3,7 +3,7 @@ package alert
 import (
 	"context"
 	"encoding/json"
-	"go-upkeep/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 	"net/http"
 	"net/http/httptest"
 	"testing"
