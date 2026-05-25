@@ -3,10 +3,11 @@ package alert
 import (
 	"context"
 	"encoding/json"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 )
 
 func TestHTTPProviderDiscord(t *testing.T) {
@@ -210,5 +211,22 @@ func TestGetProviderUnknown(t *testing.T) {
 	p := GetProvider(models.AlertConfig{Type: "unknown"})
 	if p != nil {
 		t.Error("expected nil for unknown provider type")
+	}
+}
+
+func TestSanitizeHeader(t *testing.T) {
+	tests := []struct {
+		input, want string
+	}{
+		{"normal subject", "normal subject"},
+		{"inject\r\nBcc: evil@bad.com", "injectBcc: evil@bad.com"},
+		{"has\nnewline", "hasnewline"},
+		{"has\rcarriage", "hascarriage"},
+	}
+	for _, tt := range tests {
+		got := sanitizeHeader(tt.input)
+		if got != tt.want {
+			t.Errorf("sanitizeHeader(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }

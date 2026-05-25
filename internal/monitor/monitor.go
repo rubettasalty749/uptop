@@ -4,13 +4,14 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"gitea.lerkolabs.com/lerko/uptop/internal/alert"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
-	"gitea.lerkolabs.com/lerko/uptop/internal/store"
 	"math/rand/v2"
 	"net/http"
 	"sync"
 	"time"
+
+	"gitea.lerkolabs.com/lerko/uptop/internal/alert"
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/store"
 )
 
 type Engine struct {
@@ -32,26 +33,43 @@ type Engine struct {
 	probeResults   map[int]map[string]NodeResult
 	aggStrategy    AggregationStrategy
 
-	db                 store.Store
-	insecureSkipVerify bool
-	strictClient       *http.Client
-	insecureClient     *http.Client
+	db                  store.Store
+	insecureSkipVerify  bool
+	allowPrivateTargets bool
+	strictClient        *http.Client
+	insecureClient      *http.Client
 }
 
 func NewEngine(s store.Store) *Engine {
+	return newEngine(s, false)
+}
+
+func NewEngineWithOpts(s store.Store, allowPrivateTargets bool) *Engine {
+	return newEngine(s, allowPrivateTargets)
+}
+
+func newEngine(s store.Store, allowPrivateTargets bool) *Engine {
+	dial := SafeDialContext(allowPrivateTargets)
 	return &Engine{
-		liveState:    make(map[int]models.Site),
-		histories:    make(map[int]*SiteHistory),
-		tokenIndex:   make(map[string]int),
-		probeResults: make(map[int]map[string]NodeResult),
-		aggStrategy:  AggAnyDown,
-		isActive:     true,
-		db:           s,
+		liveState:           make(map[int]models.Site),
+		histories:           make(map[int]*SiteHistory),
+		tokenIndex:          make(map[string]int),
+		probeResults:        make(map[int]map[string]NodeResult),
+		aggStrategy:         AggAnyDown,
+		isActive:            true,
+		allowPrivateTargets: allowPrivateTargets,
+		db:                  s,
 		strictClient: &http.Client{
-			Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: false}},
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: false},
+				DialContext:     dial,
+			},
 		},
 		insecureClient: &http.Client{
-			Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, //nolint:gosec // intentional for IgnoreTLS sites
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // intentional for IgnoreTLS sites
+				DialContext:     dial,
+			},
 		},
 	}
 }
@@ -351,7 +369,7 @@ func (e *Engine) checkByID(id int) {
 	case "group":
 		e.checkGroup(site)
 	default:
-		result := RunCheck(site, e.strictClient, e.insecureClient, e.insecureSkipVerify)
+		result := RunCheck(site, e.strictClient, e.insecureClient, e.insecureSkipVerify, e.allowPrivateTargets)
 		updatedSite := site
 		updatedSite.HasSSL = result.HasSSL
 		updatedSite.CertExpiry = result.CertExpiry

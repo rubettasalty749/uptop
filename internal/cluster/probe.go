@@ -6,21 +6,23 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
-	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
 	"log"
 	"net/http"
 	"sync"
 	"time"
+
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
 )
 
 type ProbeConfig struct {
-	NodeID    string
-	NodeName  string
-	Region    string
-	LeaderURL string
-	SharedKey string
-	Interval  int
+	NodeID              string
+	NodeName            string
+	Region              string
+	LeaderURL           string
+	SharedKey           string
+	Interval            int
+	AllowPrivateTargets bool
 }
 
 func RunProbe(ctx context.Context, cfg ProbeConfig) error {
@@ -29,11 +31,18 @@ func RunProbe(ctx context.Context, cfg ProbeConfig) error {
 	}
 
 	apiClient := &http.Client{Timeout: 10 * time.Second}
+	dial := monitor.SafeDialContext(cfg.AllowPrivateTargets)
 	strictClient := &http.Client{
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: false}},
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: false},
+			DialContext:     dial,
+		},
 	}
 	insecureClient := &http.Client{
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, //nolint:gosec // intentional for IgnoreTLS sites
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // intentional for IgnoreTLS sites
+			DialContext:     dial,
+		},
 	}
 
 	if err := probeRegister(ctx, apiClient, cfg); err != nil {
@@ -59,7 +68,7 @@ func RunProbe(ctx context.Context, cfg ProbeConfig) error {
 			continue
 		}
 
-		results := probeExecuteChecks(ctx, sites, strictClient, insecureClient)
+		results := probeExecuteChecks(ctx, sites, strictClient, insecureClient, cfg.AllowPrivateTargets)
 
 		if len(results) > 0 {
 			if err := probeReportResults(ctx, apiClient, cfg, results); err != nil {
@@ -121,7 +130,7 @@ type probeResultItem struct {
 	IsUp      bool  `json:"is_up"`
 }
 
-func probeExecuteChecks(ctx context.Context, sites []models.Site, strict, insecure *http.Client) []probeResultItem {
+func probeExecuteChecks(ctx context.Context, sites []models.Site, strict, insecure *http.Client, allowPrivate bool) []probeResultItem {
 	var mu sync.Mutex
 	var results []probeResultItem
 	sem := make(chan struct{}, 10)
@@ -140,7 +149,7 @@ loop:
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			cr := monitor.RunCheck(s, strict, insecure, false)
+			cr := monitor.RunCheck(s, strict, insecure, false, allowPrivate)
 			mu.Lock()
 			results = append(results, probeResultItem{
 				SiteID:    s.ID,

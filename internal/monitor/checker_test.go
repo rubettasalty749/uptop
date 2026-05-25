@@ -2,13 +2,14 @@ package monitor
 
 import (
 	"crypto/tls"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
 	"time"
+
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 )
 
 func TestRunCheck_HTTP_Success(t *testing.T) {
@@ -132,7 +133,7 @@ func TestRunCheck_Port_Open(t *testing.T) {
 	port, _ := strconv.Atoi(portStr)
 
 	site := models.Site{ID: 1, Type: "port", Hostname: "127.0.0.1", Port: port, Timeout: 2}
-	result := RunCheck(site, nil, nil, false)
+	result := RunCheck(site, nil, nil, false, true)
 
 	if result.Status != "UP" {
 		t.Errorf("expected UP, got %s", result.Status)
@@ -152,10 +153,28 @@ func TestRunCheck_Port_Closed(t *testing.T) {
 	ln.Close()
 
 	site := models.Site{ID: 1, Type: "port", Hostname: "127.0.0.1", Port: port, Timeout: 1}
-	result := RunCheck(site, nil, nil, false)
+	result := RunCheck(site, nil, nil, false, true)
 
 	if result.Status != "DOWN" {
 		t.Errorf("expected DOWN, got %s", result.Status)
+	}
+}
+
+func TestRunCheck_Port_BlocksPrivateByDefault(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+
+	site := models.Site{ID: 1, Type: "port", Hostname: "127.0.0.1", Port: port, Timeout: 2}
+	result := RunCheck(site, nil, nil, false)
+
+	if result.Status != "DOWN" {
+		t.Errorf("expected DOWN when private targets blocked, got %s", result.Status)
 	}
 }
 

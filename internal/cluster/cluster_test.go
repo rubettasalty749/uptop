@@ -3,14 +3,15 @@ package cluster
 import (
 	"context"
 	"encoding/json"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
-	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
 )
 
 // --- Mock Store (minimal, for monitor.NewEngine) ---
@@ -295,7 +296,7 @@ func TestProbeExecuteChecks(t *testing.T) {
 
 	strict := &http.Client{}
 	insecure := &http.Client{}
-	results := probeExecuteChecks(context.Background(), sites, strict, insecure)
+	results := probeExecuteChecks(context.Background(), sites, strict, insecure, true)
 
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
@@ -329,7 +330,7 @@ func TestProbeExecuteChecks_Concurrency(t *testing.T) {
 		sites = append(sites, models.Site{ID: i + 1, Type: "http", URL: srv.URL})
 	}
 
-	results := probeExecuteChecks(context.Background(), sites, &http.Client{}, &http.Client{})
+	results := probeExecuteChecks(context.Background(), sites, &http.Client{}, &http.Client{}, true)
 	if len(results) != 20 {
 		t.Errorf("expected 20 results, got %d", len(results))
 	}

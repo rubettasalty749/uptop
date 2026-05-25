@@ -5,12 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 	"net/http"
 	"net/smtp"
 	"strconv"
 	"strings"
 	"time"
+
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 )
 
 var alertClient = &http.Client{Timeout: 10 * time.Second}
@@ -176,6 +177,12 @@ type EmailProvider struct {
 	Host, Port, User, Pass, To, From string
 }
 
+func sanitizeHeader(s string) string {
+	s = strings.ReplaceAll(s, "\r", "")
+	s = strings.ReplaceAll(s, "\n", "")
+	return s
+}
+
 func (e *EmailProvider) Send(ctx context.Context, title, message string) error {
 	select {
 	case <-ctx.Done():
@@ -183,11 +190,18 @@ func (e *EmailProvider) Send(ctx context.Context, title, message string) error {
 	default:
 	}
 	auth := smtp.PlainAuth("", e.User, e.Pass, e.Host)
-	msg := []byte("To: " + e.To + "\r\n" +
-		"Subject: uptop: " + title + "\r\n" +
+	to := sanitizeHeader(e.To)
+	from := sanitizeHeader(e.From)
+	subject := sanitizeHeader(title)
+	body := strings.ReplaceAll(message, "\r", "")
+	msg := []byte("From: " + from + "\r\n" +
+		"To: " + to + "\r\n" +
+		"Subject: uptop: " + subject + "\r\n" +
+		"MIME-Version: 1.0\r\n" +
+		"Content-Type: text/plain; charset=utf-8\r\n" +
 		"\r\n" +
-		message + "\r\n")
-	return smtp.SendMail(e.Host+":"+e.Port, auth, e.From, []string{e.To}, msg)
+		body + "\r\n")
+	return smtp.SendMail(e.Host+":"+e.Port, auth, from, []string{to}, msg)
 }
 
 type NtfyProvider struct {
