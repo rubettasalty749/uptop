@@ -2,7 +2,7 @@ package tui
 
 import (
 	"fmt"
-	"go-upkeep/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 	"strconv"
 	"time"
 

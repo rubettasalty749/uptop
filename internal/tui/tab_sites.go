@@ -2,11 +2,12 @@ package tui
 
 import (
 	"fmt"
-	"go-upkeep/internal/models"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
@@ -340,7 +341,7 @@ func (m Model) viewSitesTab() string {
 			BorderForeground(m.theme.Accent).
 			Padding(1, 3).
 			Render(
-				titleStyle.Render("Go-Upkeep") + "\n\n" +
+				titleStyle.Render("uptop") + "\n\n" +
 					"No monitors configured yet.\n\n" +
 					subtleStyle.Render("[n] Add your first monitor"),
 			)

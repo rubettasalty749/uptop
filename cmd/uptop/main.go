@@ -5,14 +5,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"go-upkeep/internal/cluster"
-	"go-upkeep/internal/config"
-	"go-upkeep/internal/importer"
-	"go-upkeep/internal/models"
-	"go-upkeep/internal/monitor"
-	"go-upkeep/internal/server"
-	"go-upkeep/internal/store"
-	"go-upkeep/internal/tui"
+	"gitea.lerkolabs.com/lerko/uptop/internal/cluster"
+	"gitea.lerkolabs.com/lerko/uptop/internal/config"
+	"gitea.lerkolabs.com/lerko/uptop/internal/importer"
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
+	"gitea.lerkolabs.com/lerko/uptop/internal/server"
+	"gitea.lerkolabs.com/lerko/uptop/internal/store"
+	"gitea.lerkolabs.com/lerko/uptop/internal/tui"
 	"log"
 	"os"
 	"os/signal"
@@ -54,9 +54,9 @@ func main() {
 
 func printVersion() {
 	if version == "dev" {
-		fmt.Println("go-upkeep dev")
+		fmt.Println("uptop dev")
 	} else {
-		fmt.Printf("go-upkeep %s (%s, %s)\n", version, commit, date)
+		fmt.Printf("uptop %s (%s, %s)\n", version, commit, date)
 	}
 }
 
@@ -91,8 +91,8 @@ func runApply(args []string) {
 	filePath := fs.String("f", "", "Path to YAML config file (required)")
 	dryRun := fs.Bool("dry-run", false, "Show planned changes without applying")
 	prune := fs.Bool("prune", false, "Delete monitors/alerts not in YAML")
-	dbType := fs.String("db-type", envOrDefault("UPKEEP_DB_TYPE", "sqlite"), "Database type")
-	dsn := fs.String("dsn", envOrDefault("UPKEEP_DB_DSN", "upkeep.db"), "Database DSN")
+	dbType := fs.String("db-type", envOrDefault("UPTOP_DB_TYPE", "sqlite"), "Database type")
+	dsn := fs.String("dsn", envOrDefault("UPTOP_DB_DSN", "uptop.db"), "Database DSN")
 	_ = fs.Parse(args) // ExitOnError: parse errors exit before returning
 
 	if *filePath == "" {
@@ -124,8 +124,8 @@ func runApply(args []string) {
 func runExport(args []string) {
 	fs := flag.NewFlagSet("export", flag.ExitOnError)
 	outPath := fs.String("o", "-", "Output file path (- for stdout)")
-	dbType := fs.String("db-type", envOrDefault("UPKEEP_DB_TYPE", "sqlite"), "Database type")
-	dsn := fs.String("dsn", envOrDefault("UPKEEP_DB_DSN", "upkeep.db"), "Database DSN")
+	dbType := fs.String("db-type", envOrDefault("UPTOP_DB_TYPE", "sqlite"), "Database type")
+	dsn := fs.String("dsn", envOrDefault("UPTOP_DB_DSN", "uptop.db"), "Database DSN")
 	_ = fs.Parse(args) // ExitOnError: parse errors exit before returning
 
 	s := openStore(*dbType, *dsn)
@@ -145,7 +145,7 @@ func runExport(args []string) {
 func runServe(args []string) {
 	portVal := 23234
 	dbType := "sqlite"
-	dbDSN := "upkeep.db"
+	dbDSN := "uptop.db"
 	httpPort := 8080
 	enableStatus := false
 	statusTitle := "System Status"
@@ -153,50 +153,50 @@ func runServe(args []string) {
 	clusterPeer := ""
 	clusterKey := ""
 
-	if v := os.Getenv("UPKEEP_PORT"); v != "" {
+	if v := os.Getenv("UPTOP_PORT"); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
 			portVal = p
 		}
 	}
-	if v := os.Getenv("UPKEEP_DB_TYPE"); v != "" {
+	if v := os.Getenv("UPTOP_DB_TYPE"); v != "" {
 		dbType = v
 	}
-	if v := os.Getenv("UPKEEP_DB_DSN"); v != "" {
+	if v := os.Getenv("UPTOP_DB_DSN"); v != "" {
 		dbDSN = v
 	}
-	if v := os.Getenv("UPKEEP_HTTP_PORT"); v != "" {
+	if v := os.Getenv("UPTOP_HTTP_PORT"); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
 			httpPort = p
 		}
 	}
-	if v := os.Getenv("UPKEEP_STATUS_ENABLED"); v == "true" {
+	if v := os.Getenv("UPTOP_STATUS_ENABLED"); v == "true" {
 		enableStatus = true
 	}
-	if v := os.Getenv("UPKEEP_STATUS_TITLE"); v != "" {
+	if v := os.Getenv("UPTOP_STATUS_TITLE"); v != "" {
 		statusTitle = v
 	}
-	if v := os.Getenv("UPKEEP_CLUSTER_MODE"); v != "" {
+	if v := os.Getenv("UPTOP_CLUSTER_MODE"); v != "" {
 		clusterMode = v
 	}
-	if v := os.Getenv("UPKEEP_PEER_URL"); v != "" {
+	if v := os.Getenv("UPTOP_PEER_URL"); v != "" {
 		clusterPeer = v
 	}
-	if v := os.Getenv("UPKEEP_CLUSTER_SECRET"); v != "" {
+	if v := os.Getenv("UPTOP_CLUSTER_SECRET"); v != "" {
 		clusterKey = v
 	}
 
-	nodeID := os.Getenv("UPKEEP_NODE_ID")
-	nodeName := os.Getenv("UPKEEP_NODE_NAME")
-	nodeRegion := os.Getenv("UPKEEP_NODE_REGION")
-	aggStrategy := os.Getenv("UPKEEP_AGG_STRATEGY")
+	nodeID := os.Getenv("UPTOP_NODE_ID")
+	nodeName := os.Getenv("UPTOP_NODE_NAME")
+	nodeRegion := os.Getenv("UPTOP_NODE_REGION")
+	aggStrategy := os.Getenv("UPTOP_AGG_STRATEGY")
 
 	if clusterMode == "probe" {
 		if nodeID == "" {
-			fmt.Fprintln(os.Stderr, "UPKEEP_NODE_ID is required for probe mode")
+			fmt.Fprintln(os.Stderr, "UPTOP_NODE_ID is required for probe mode")
 			os.Exit(1)
 		}
 		if clusterPeer == "" {
-			fmt.Fprintln(os.Stderr, "UPKEEP_PEER_URL is required for probe mode")
+			fmt.Fprintln(os.Stderr, "UPTOP_PEER_URL is required for probe mode")
 			os.Exit(1)
 		}
 
@@ -270,7 +270,7 @@ func runServe(args []string) {
 	}
 
 	eng := monitor.NewEngine(s)
-	if os.Getenv("UPKEEP_INSECURE_SKIP_VERIFY") == "true" {
+	if os.Getenv("UPTOP_INSECURE_SKIP_VERIFY") == "true" {
 		eng.SetInsecureSkipVerify(true)
 	}
 	if aggStrategy != "" {
@@ -305,7 +305,7 @@ func runServe(args []string) {
 			fmt.Printf("Error: %v\n", err)
 		}
 	} else {
-		fmt.Println("Go-Upkeep running in HEADLESS mode")
+		fmt.Println("uptop running in HEADLESS mode")
 		done := make(chan os.Signal, 1)
 		signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 		<-done

@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"go-upkeep/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 	"log"
 	"time"
 )

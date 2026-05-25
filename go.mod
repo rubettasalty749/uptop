@@ -1,4 +1,4 @@
-module go-upkeep
+module gitea.lerkolabs.com/lerko/uptop
 
 go 1.24.4
 

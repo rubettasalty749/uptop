@@ -9,7 +9,7 @@ ENV CGO_ENABLED=1
 ARG VERSION=dev
 ARG COMMIT=none
 ARG BUILD_DATE=unknown
-RUN go build -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${BUILD_DATE}" -o go-upkeep ./cmd/goupkeep/main.go
+RUN go build -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${BUILD_DATE}" -o uptop ./cmd/uptop/main.go
 
 # --- Stage 2: Runner ---
 FROM alpine:latest
@@ -17,15 +17,15 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates openssh-client
 RUN mkdir /data
 
-COPY --from=builder /app/go-upkeep .
+COPY --from=builder /app/uptop .
 
 # Set Default Configuration via ENV
 # Docker users can override these in docker-compose.yml
 ENV LIPGLOSS_RENDERER_HAS_DARK_BACKGROUND=true
-ENV UPKEEP_DB_TYPE=sqlite
-ENV UPKEEP_DB_DSN=/data/upkeep.db
-ENV UPKEEP_KEYS=/data/authorized_keys
-ENV UPKEEP_PORT=23234
+ENV UPTOP_DB_TYPE=sqlite
+ENV UPTOP_DB_DSN=/data/uptop.db
+ENV UPTOP_KEYS=/data/authorized_keys
+ENV UPTOP_PORT=23234
 
 EXPOSE 23234
-CMD ["./go-upkeep"]
+CMD ["./uptop"]

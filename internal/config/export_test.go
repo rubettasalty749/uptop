@@ -1,7 +1,7 @@
 package config
 
 import (
-	"go-upkeep/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 	"testing"
 )
 

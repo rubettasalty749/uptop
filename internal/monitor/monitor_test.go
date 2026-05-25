@@ -2,7 +2,7 @@ package monitor
 
 import (
 	"fmt"
-	"go-upkeep/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 	"sync"
 	"testing"
 	"time"

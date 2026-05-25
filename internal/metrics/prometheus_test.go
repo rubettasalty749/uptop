@@ -2,8 +2,8 @@ package metrics
 
 import (
 	"context"
-	"go-upkeep/internal/models"
-	"go-upkeep/internal/monitor"
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -94,13 +94,13 @@ func TestMetricsHandler(t *testing.T) {
 	}
 
 	expected := []string{
-		"# HELP upkeep_monitor_up",
-		"# TYPE upkeep_monitor_up gauge",
-		`upkeep_monitor_up{id="1",name="Example",type="http"}`,
-		`upkeep_monitor_up{id="2",name="DNS Check",type="dns"}`,
-		"# HELP upkeep_monitor_latency_seconds",
-		"# HELP upkeep_monitor_paused",
-		"# HELP upkeep_monitor_checks_total",
+		"# HELP uptop_monitor_up",
+		"# TYPE uptop_monitor_up gauge",
+		`uptop_monitor_up{id="1",name="Example",type="http"}`,
+		`uptop_monitor_up{id="2",name="DNS Check",type="dns"}`,
+		"# HELP uptop_monitor_latency_seconds",
+		"# HELP uptop_monitor_paused",
+		"# HELP uptop_monitor_checks_total",
 	}
 	for _, s := range expected {
 		if !strings.Contains(body, s) {

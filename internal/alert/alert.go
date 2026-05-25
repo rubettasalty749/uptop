@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"go-upkeep/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 	"net/http"
 	"net/smtp"
 	"strconv"
@@ -76,7 +76,7 @@ func pagerdutyPayload(routingKey, severity string) PayloadFunc {
 			"event_action": "trigger",
 			"payload": map[string]string{
 				"summary":  fmt.Sprintf("%s: %s", title, message),
-				"source":   "go-upkeep",
+				"source":   "uptop",
 				"severity": severity,
 			},
 		})
@@ -184,7 +184,7 @@ func (e *EmailProvider) Send(ctx context.Context, title, message string) error {
 	}
 	auth := smtp.PlainAuth("", e.User, e.Pass, e.Host)
 	msg := []byte("To: " + e.To + "\r\n" +
-		"Subject: Go-Upkeep: " + title + "\r\n" +
+		"Subject: uptop: " + title + "\r\n" +
 		"\r\n" +
 		message + "\r\n")
 	return smtp.SendMail(e.Host+":"+e.Port, auth, e.From, []string{e.To}, msg)

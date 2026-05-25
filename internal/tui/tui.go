@@ -3,9 +3,9 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
-	"go-upkeep/internal/models"
-	"go-upkeep/internal/monitor"
-	"go-upkeep/internal/store"
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
+	"gitea.lerkolabs.com/lerko/uptop/internal/store"
 	"math"
 	"sort"
 	"strings"

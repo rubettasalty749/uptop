@@ -3,7 +3,7 @@ package cluster
 import (
 	"context"
 	"fmt"
-	"go-upkeep/internal/monitor"
+	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
 	"net/http"
 	"strings"
 	"time"
