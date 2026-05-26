@@ -3,10 +3,11 @@ package cluster
 import (
 	"context"
 	"fmt"
-	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
 	"net/http"
 	"strings"
 	"time"
+
+	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
 )
 
 type Config struct {
@@ -57,8 +58,8 @@ func runFollowerLoop(ctx context.Context, cfg Config, eng *monitor.Engine) {
 		resp, err := client.Do(req)
 		isLeaderHealthy := false
 
-		if err == nil && resp.StatusCode == 200 {
-			isLeaderHealthy = true
+		if err == nil {
+			isLeaderHealthy = resp.StatusCode == 200
 			_ = resp.Body.Close()
 		}
 

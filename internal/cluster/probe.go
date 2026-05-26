@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -102,7 +103,8 @@ func probeRegister(ctx context.Context, client *http.Client, cfg ProbeConfig) er
 }
 
 func probeFetchAssignments(ctx context.Context, client *http.Client, cfg ProbeConfig) ([]models.Site, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", cfg.LeaderURL+"/api/probe/assignments?node_id="+cfg.NodeID, nil)
+	assignURL := cfg.LeaderURL + "/api/probe/assignments?" + url.Values{"node_id": {cfg.NodeID}}.Encode()
+	req, err := http.NewRequestWithContext(ctx, "GET", assignURL, nil)
 	if err != nil {
 		return nil, err
 	}

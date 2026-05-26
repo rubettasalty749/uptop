@@ -12,6 +12,13 @@ import (
 	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 )
 
+const (
+	maxCheckHistory      = 1000
+	checkHistoryPruneAt  = 1100
+	maxMaintenanceExport = 1000
+	maxRequestBody       = 1 << 20
+)
+
 type SQLStore struct {
 	db        *sql.DB
 	dialect   Dialect
@@ -351,10 +358,11 @@ func (s *SQLStore) SaveCheckFromNode(siteID int, nodeID string, latencyNs int64,
 	}
 	var count int
 	_ = s.db.QueryRow(s.q("SELECT COUNT(*) FROM check_history WHERE site_id = ?"), siteID).Scan(&count)
-	if count > 1100 {
-		_, err = s.db.Exec(s.q(`DELETE FROM check_history WHERE site_id = ? AND id NOT IN (
-			SELECT id FROM check_history WHERE site_id = ? ORDER BY checked_at DESC LIMIT 1000
-		)`), siteID, siteID)
+	if count > checkHistoryPruneAt {
+		pruneQuery := fmt.Sprintf(`DELETE FROM check_history WHERE site_id = ? AND id NOT IN (
+			SELECT id FROM check_history WHERE site_id = ? ORDER BY checked_at DESC LIMIT %d
+		)`, maxCheckHistory)
+		_, err = s.db.Exec(s.q(pruneQuery), siteID, siteID)
 		return err
 	}
 	return nil
@@ -570,7 +578,7 @@ func (s *SQLStore) ExportData() (models.Backup, error) {
 	if err != nil {
 		return models.Backup{}, err
 	}
-	windows, err := s.GetAllMaintenanceWindows(1000)
+	windows, err := s.GetAllMaintenanceWindows(maxMaintenanceExport)
 	if err != nil {
 		return models.Backup{}, err
 	}
