@@ -5,30 +5,33 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  GO_VERSION: "1.24"
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    container:
+      image: golang:1.24-alpine3.21
     defaults:
       run:
         shell: sh
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.24"
-
       - uses: actions/cache@v4
         with:
-          path: ~/.cache/go-build
-          key: go-build-${{ hashFiles('**/*.go', 'go.sum') }}
-          restore-keys: go-build-
+          path: |
+            /go/pkg/mod
+            /root/.cache/go-build
+          key: go-${{ hashFiles('go.sum') }}
+          restore-keys: go-
 
       - name: Install build tools
         run: apk add --no-cache gcc musl-dev
 
-      - name: Vet
-        run: go vet ./...
+      - name: Download modules
+        run: go mod download
 
       - name: Test
         run: CGO_ENABLED=1 go test -race -timeout 120s ./...
@@ -45,3 +48,18 @@ jobs:
       - uses: golangci/golangci-lint-action@v7
         with:
           version: v2.11.2
+
+  vulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck ./...
