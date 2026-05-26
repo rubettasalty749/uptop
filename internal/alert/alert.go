@@ -25,6 +25,7 @@ type PayloadFunc func(title, message string) ([]byte, error)
 type HTTPProvider struct {
 	URL     string
 	Payload PayloadFunc
+	Headers map[string]string
 }
 
 func (h *HTTPProvider) Send(ctx context.Context, title, message string) error {
@@ -37,6 +38,9 @@ func (h *HTTPProvider) Send(ctx context.Context, title, message string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	for k, v := range h.Headers {
+		req.Header.Set(k, v)
+	}
 	resp, err := alertClient.Do(req)
 	if err != nil {
 		return err
@@ -165,8 +169,9 @@ func GetProvider(cfg models.AlertConfig) Provider {
 		}
 		serverURL := strings.TrimRight(cfg.Settings["url"], "/")
 		return &HTTPProvider{
-			URL:     fmt.Sprintf("%s/message?token=%s", serverURL, cfg.Settings["token"]),
+			URL:     serverURL + "/message",
 			Payload: gotifyPayload(priority),
+			Headers: map[string]string{"X-Gotify-Key": cfg.Settings["token"]},
 		}
 	default:
 		return nil

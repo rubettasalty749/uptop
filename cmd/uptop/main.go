@@ -385,13 +385,14 @@ func runServe(args []string) {
 	tlsKey := os.Getenv("UPTOP_TLS_KEY")
 
 	httpSrv := server.Start(server.ServerConfig{
-		Port:         httpPort,
-		EnableStatus: enableStatus,
-		Title:        statusTitle,
-		ClusterKey:   clusterKey,
-		TLSCert:      tlsCert,
-		TLSKey:       tlsKey,
-		ClusterMode:  clusterMode,
+		Port:          httpPort,
+		EnableStatus:  enableStatus,
+		Title:         statusTitle,
+		ClusterKey:    clusterKey,
+		TLSCert:       tlsCert,
+		TLSKey:        tlsKey,
+		ClusterMode:   clusterMode,
+		MetricsPublic: os.Getenv("UPTOP_METRICS_PUBLIC") == "true",
 	}, s, eng)
 
 	cluster.Start(ctx, cluster.Config{

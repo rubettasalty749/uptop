@@ -195,25 +195,47 @@ func (s *SQLStore) GetAlertByName(name string) (models.AlertConfig, error) {
 }
 
 func (s *SQLStore) AddSiteReturningID(site models.Site) (int, error) {
-	if err := s.AddSite(site); err != nil {
-		return 0, err
+	token := ""
+	if site.Type == "push" {
+		var err error
+		token, err = generateToken()
+		if err != nil {
+			return 0, fmt.Errorf("generate push token: %w", err)
+		}
 	}
-	created, err := s.GetSiteByName(site.Name)
+	if s.dollar {
+		var id int
+		err := s.db.QueryRow(s.q("INSERT INTO sites (name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries, hostname, port, timeout, method, description, parent_id, accepted_codes, dns_resolve_type, dns_server, ignore_tls, paused, regions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"),
+			site.Name, site.URL, site.Type, token, site.Interval, site.AlertID, site.CheckSSL, site.ExpiryThreshold, site.MaxRetries,
+			site.Hostname, site.Port, site.Timeout, site.Method, site.Description, site.ParentID, site.AcceptedCodes, site.DNSResolveType, site.DNSServer, site.IgnoreTLS, site.Paused, site.Regions).Scan(&id)
+		return id, err
+	}
+	result, err := s.db.Exec(s.q("INSERT INTO sites (name, url, type, token, interval, alert_id, check_ssl, threshold, max_retries, hostname, port, timeout, method, description, parent_id, accepted_codes, dns_resolve_type, dns_server, ignore_tls, paused, regions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+		site.Name, site.URL, site.Type, token, site.Interval, site.AlertID, site.CheckSSL, site.ExpiryThreshold, site.MaxRetries,
+		site.Hostname, site.Port, site.Timeout, site.Method, site.Description, site.ParentID, site.AcceptedCodes, site.DNSResolveType, site.DNSServer, site.IgnoreTLS, site.Paused, site.Regions)
 	if err != nil {
 		return 0, err
 	}
-	return created.ID, nil
+	id, err := result.LastInsertId()
+	return int(id), err
 }
 
 func (s *SQLStore) AddAlertReturningID(name, aType string, settings map[string]string) (int, error) {
-	if err := s.AddAlert(name, aType, settings); err != nil {
-		return 0, err
-	}
-	created, err := s.GetAlertByName(name)
+	stored, err := s.marshalSettings(settings)
 	if err != nil {
 		return 0, err
 	}
-	return created.ID, nil
+	if s.dollar {
+		var id int
+		err := s.db.QueryRow(s.q("INSERT INTO alerts (name, type, settings) VALUES (?, ?, ?) RETURNING id"), name, aType, stored).Scan(&id)
+		return id, err
+	}
+	result, err := s.db.Exec(s.q("INSERT INTO alerts (name, type, settings) VALUES (?, ?, ?)"), name, aType, stored)
+	if err != nil {
+		return 0, err
+	}
+	id, err := result.LastInsertId()
+	return int(id), err
 }
 
 func (s *SQLStore) GetAllAlerts() ([]models.AlertConfig, error) {

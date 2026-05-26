@@ -1,6 +1,9 @@
 package store
 
-import "database/sql"
+import (
+	"database/sql"
+	"strconv"
+)
 
 type Dialect interface {
 	DriverName() string
@@ -13,8 +16,6 @@ type Dialect interface {
 	UpsertNodeSQL() string
 }
 
-// rewritePlaceholders converts ? markers to $1, $2, etc. for Postgres.
-// For SQLite (or any dialect not needing rewrite), returns the input unchanged.
 func rewritePlaceholders(query string, dollarStyle bool) string {
 	if !dollarStyle {
 		return query
@@ -25,10 +26,7 @@ func rewritePlaceholders(query string, dollarStyle bool) string {
 		if query[i] == '?' {
 			n++
 			buf = append(buf, '$')
-			if n >= 10 {
-				buf = append(buf, byte('0'+n/10))
-			}
-			buf = append(buf, byte('0'+n%10))
+			buf = append(buf, []byte(strconv.Itoa(n))...)
 		} else {
 			buf = append(buf, query[i])
 		}
