@@ -6,15 +6,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 	"log"
 	"time"
+
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 )
 
 type SQLStore struct {
-	db      *sql.DB
-	dialect Dialect
-	dollar  bool
+	db        *sql.DB
+	dialect   Dialect
+	dollar    bool
+	encryptor *Encryptor
 }
 
 func NewSQLStore(driverName, dsn string, dialect Dialect) (*SQLStore, error) {
@@ -24,6 +26,24 @@ func NewSQLStore(driverName, dsn string, dialect Dialect) (*SQLStore, error) {
 	}
 	_, isDollar := dialect.(*PostgresDialect)
 	return &SQLStore{db: db, dialect: dialect, dollar: isDollar}, nil
+}
+
+func (s *SQLStore) SetEncryptor(enc *Encryptor) {
+	s.encryptor = enc
+}
+
+func (s *SQLStore) encryptSettings(jsonStr string) (string, error) {
+	if s.encryptor == nil {
+		return jsonStr, nil
+	}
+	return s.encryptor.Encrypt(jsonStr)
+}
+
+func (s *SQLStore) decryptSettings(data string) (string, error) {
+	if s.encryptor == nil {
+		return data, nil
+	}
+	return s.encryptor.Decrypt(data)
 }
 
 func (s *SQLStore) q(query string) string {
@@ -140,15 +160,36 @@ func (s *SQLStore) GetSiteByName(name string) (models.Site, error) {
 	return st, err
 }
 
+func (s *SQLStore) unmarshalSettings(raw string) (map[string]string, error) {
+	decrypted, err := s.decryptSettings(raw)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt settings: %w", err)
+	}
+	var m map[string]string
+	if err := json.Unmarshal([]byte(decrypted), &m); err != nil {
+		return nil, fmt.Errorf("unmarshal settings: %w", err)
+	}
+	return m, nil
+}
+
+func (s *SQLStore) marshalSettings(settings map[string]string) (string, error) {
+	jsonBytes, err := json.Marshal(settings)
+	if err != nil {
+		return "", err
+	}
+	return s.encryptSettings(string(jsonBytes))
+}
+
 func (s *SQLStore) GetAlertByName(name string) (models.AlertConfig, error) {
 	var a models.AlertConfig
-	var settingsJSON string
-	err := s.db.QueryRow(s.q("SELECT id, name, type, settings FROM alerts WHERE name = ?"), name).Scan(&a.ID, &a.Name, &a.Type, &settingsJSON)
+	var settingsRaw string
+	err := s.db.QueryRow(s.q("SELECT id, name, type, settings FROM alerts WHERE name = ?"), name).Scan(&a.ID, &a.Name, &a.Type, &settingsRaw)
 	if err != nil {
 		return a, err
 	}
-	if err := json.Unmarshal([]byte(settingsJSON), &a.Settings); err != nil {
-		return a, fmt.Errorf("unmarshal alert settings: %w", err)
+	a.Settings, err = s.unmarshalSettings(settingsRaw)
+	if err != nil {
+		return a, fmt.Errorf("alert %q: %w", name, err)
 	}
 	return a, nil
 }
@@ -184,12 +225,13 @@ func (s *SQLStore) GetAllAlerts() ([]models.AlertConfig, error) {
 	var alerts []models.AlertConfig
 	for rows.Next() {
 		var a models.AlertConfig
-		var settingsJSON string
-		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &settingsJSON); err != nil {
+		var settingsRaw string
+		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &settingsRaw); err != nil {
 			return alerts, err
 		}
-		if err := json.Unmarshal([]byte(settingsJSON), &a.Settings); err != nil {
-			return alerts, fmt.Errorf("unmarshal alert settings for %q: %w", a.Name, err)
+		a.Settings, err = s.unmarshalSettings(settingsRaw)
+		if err != nil {
+			return alerts, fmt.Errorf("alert %q: %w", a.Name, err)
 		}
 		alerts = append(alerts, a)
 	}
@@ -198,32 +240,33 @@ func (s *SQLStore) GetAllAlerts() ([]models.AlertConfig, error) {
 
 func (s *SQLStore) GetAlert(id int) (models.AlertConfig, error) {
 	var a models.AlertConfig
-	var settingsJSON string
-	err := s.db.QueryRow(s.q("SELECT id, name, type, settings FROM alerts WHERE id = ?"), id).Scan(&a.ID, &a.Name, &a.Type, &settingsJSON)
+	var settingsRaw string
+	err := s.db.QueryRow(s.q("SELECT id, name, type, settings FROM alerts WHERE id = ?"), id).Scan(&a.ID, &a.Name, &a.Type, &settingsRaw)
 	if err != nil {
 		return a, err
 	}
-	if err := json.Unmarshal([]byte(settingsJSON), &a.Settings); err != nil {
-		return a, fmt.Errorf("unmarshal alert settings: %w", err)
+	a.Settings, err = s.unmarshalSettings(settingsRaw)
+	if err != nil {
+		return a, fmt.Errorf("alert %d: %w", id, err)
 	}
 	return a, nil
 }
 
 func (s *SQLStore) AddAlert(name, aType string, settings map[string]string) error {
-	jsonBytes, err := json.Marshal(settings)
+	stored, err := s.marshalSettings(settings)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(s.q("INSERT INTO alerts (name, type, settings) VALUES (?, ?, ?)"), name, aType, string(jsonBytes))
+	_, err = s.db.Exec(s.q("INSERT INTO alerts (name, type, settings) VALUES (?, ?, ?)"), name, aType, stored)
 	return err
 }
 
 func (s *SQLStore) UpdateAlert(id int, name, aType string, settings map[string]string) error {
-	jsonBytes, err := json.Marshal(settings)
+	stored, err := s.marshalSettings(settings)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(s.q("UPDATE alerts SET name=?, type=?, settings=? WHERE id=?"), name, aType, string(jsonBytes), id)
+	_, err = s.db.Exec(s.q("UPDATE alerts SET name=?, type=?, settings=? WHERE id=?"), name, aType, stored, id)
 	return err
 }
 

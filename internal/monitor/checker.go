@@ -2,12 +2,13 @@ package monitor
 
 import (
 	"context"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 
 	"github.com/miekg/dns"
 	probing "github.com/prometheus-community/pro-bing"
@@ -22,7 +23,25 @@ type CheckResult struct {
 	CertExpiry time.Time
 }
 
-func RunCheck(site models.Site, strict, insecure *http.Client, globalInsecure bool) CheckResult {
+func RunCheck(site models.Site, strict, insecure *http.Client, globalInsecure bool, allowPrivate ...bool) CheckResult {
+	private := len(allowPrivate) > 0 && allowPrivate[0]
+
+	if site.Type != "http" && site.Type != "dns" && !private {
+		host := site.Hostname
+		if host == "" {
+			host = site.URL
+		}
+		if host != "" {
+			if ips, err := net.LookupIP(host); err == nil {
+				for _, ip := range ips {
+					if isPrivateIP(ip) {
+						return CheckResult{SiteID: site.ID, Status: "DOWN"}
+					}
+				}
+			}
+		}
+	}
+
 	switch site.Type {
 	case "http":
 		return runHTTPCheck(site, strict, insecure, globalInsecure)

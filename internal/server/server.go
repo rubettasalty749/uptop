@@ -4,17 +4,18 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
-	"gitea.lerkolabs.com/lerko/uptop/internal/importer"
-	"gitea.lerkolabs.com/lerko/uptop/internal/metrics"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
-	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
-	"gitea.lerkolabs.com/lerko/uptop/internal/store"
 	"html/template"
 	"log"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
+
+	"gitea.lerkolabs.com/lerko/uptop/internal/importer"
+	"gitea.lerkolabs.com/lerko/uptop/internal/metrics"
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
+	"gitea.lerkolabs.com/lerko/uptop/internal/store"
 )
 
 func checkSecret(got, want string) bool {
@@ -156,7 +157,10 @@ type ServerConfig struct {
 	Port         int
 	EnableStatus bool
 	Title        string
-	ClusterKey   string // Shared Secret for Security
+	ClusterKey   string
+	TLSCert      string
+	TLSKey       string
+	ClusterMode  string
 }
 
 func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
@@ -399,15 +403,38 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 		})
 	}
 
+	if cfg.ClusterMode != "" && cfg.ClusterMode != "leader" && cfg.TLSCert == "" {
+		fmt.Println("WARNING: Cluster mode active without TLS. Secrets transmitted in cleartext.")
+	}
+
+	var handler http.Handler = mux
+	if cfg.TLSCert != "" {
+		handler = hstsMiddleware(mux)
+	}
+
 	addr := fmt.Sprintf(":%d", cfg.Port)
-	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
-		fmt.Printf("HTTP Server listening on %s\n", addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("HTTP server error: %v", err)
+		if cfg.TLSCert != "" && cfg.TLSKey != "" {
+			fmt.Printf("HTTPS Server listening on %s\n", addr)
+			if err := srv.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey); err != nil && err != http.ErrServerClosed {
+				log.Printf("HTTPS server error: %v", err)
+			}
+		} else {
+			fmt.Printf("HTTP Server listening on %s\n", addr)
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Printf("HTTP server error: %v", err)
+			}
 		}
 	}()
 	return srv
+}
+
+func hstsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func renderStatusPage(w http.ResponseWriter, title string, eng *monitor.Engine) {

@@ -5,6 +5,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
+	"net/url"
+	"os"
+	"os/signal"
+	"strconv"
+	"syscall"
+	"time"
+
 	"gitea.lerkolabs.com/lerko/uptop/internal/cluster"
 	"gitea.lerkolabs.com/lerko/uptop/internal/config"
 	"gitea.lerkolabs.com/lerko/uptop/internal/importer"
@@ -13,12 +21,6 @@ import (
 	"gitea.lerkolabs.com/lerko/uptop/internal/server"
 	"gitea.lerkolabs.com/lerko/uptop/internal/store"
 	"gitea.lerkolabs.com/lerko/uptop/internal/tui"
-	"log"
-	"os"
-	"os/signal"
-	"strconv"
-	"syscall"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/ssh"
@@ -47,6 +49,9 @@ func main() {
 		case "version", "--version", "-v":
 			printVersion()
 			return
+		case "migrate-secrets":
+			runMigrateSecrets(os.Args[2:])
+			return
 		}
 	}
 	runServe(os.Args[1:])
@@ -67,23 +72,42 @@ func envOrDefault(key, fallback string) string {
 	return fallback
 }
 
+func redactDSN(dsn string) string {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return "***"
+	}
+	u.User = nil
+	return u.String()
+}
+
 func openStore(dbType, dsn string) store.Store {
-	var s store.Store
+	var ss *store.SQLStore
 	var err error
 	if dbType == "postgres" {
-		s, err = store.NewPostgresStore(dsn)
+		ss, err = store.NewPostgresStore(dsn)
 	} else {
-		s, err = store.NewSQLiteStore(dsn)
+		ss, err = store.NewSQLiteStore(dsn)
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "database error: %v\n", err)
 		os.Exit(1)
 	}
-	if err := s.Init(); err != nil {
+	if encKey := os.Getenv("UPTOP_ENCRYPTION_KEY"); encKey != "" {
+		enc, err := store.NewEncryptor(encKey)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "encryption key error: %v\n", err)
+			os.Exit(1)
+		}
+		ss.SetEncryptor(enc)
+	} else {
+		fmt.Println("WARNING: No UPTOP_ENCRYPTION_KEY set. Alert credentials stored unencrypted.")
+	}
+	if err := ss.Init(); err != nil {
 		fmt.Fprintf(os.Stderr, "database init error: %v\n", err)
 		os.Exit(1)
 	}
-	return s
+	return ss
 }
 
 func runApply(args []string) {
@@ -140,6 +164,56 @@ func runExport(args []string) {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func runMigrateSecrets(args []string) {
+	fs := flag.NewFlagSet("migrate-secrets", flag.ExitOnError)
+	dbType := fs.String("db-type", envOrDefault("UPTOP_DB_TYPE", "sqlite"), "Database type")
+	dsn := fs.String("dsn", envOrDefault("UPTOP_DB_DSN", "uptop.db"), "Database DSN")
+	_ = fs.Parse(args)
+
+	encKey := os.Getenv("UPTOP_ENCRYPTION_KEY")
+	if encKey == "" {
+		fmt.Fprintln(os.Stderr, "error: UPTOP_ENCRYPTION_KEY must be set")
+		os.Exit(1)
+	}
+	enc, err := store.NewEncryptor(encKey)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	var ss *store.SQLStore
+	if *dbType == "postgres" {
+		ss, err = store.NewPostgresStore(*dsn)
+	} else {
+		ss, err = store.NewSQLiteStore(*dsn)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "database error: %v\n", err)
+		os.Exit(1)
+	}
+	if err := ss.Init(); err != nil {
+		fmt.Fprintf(os.Stderr, "database init error: %v\n", err)
+		os.Exit(1)
+	}
+
+	alerts, err := ss.GetAllAlerts()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error loading alerts: %v\n", err)
+		os.Exit(1)
+	}
+
+	ss.SetEncryptor(enc)
+	migrated := 0
+	for _, a := range alerts {
+		if err := ss.UpdateAlert(a.ID, a.Name, a.Type, a.Settings); err != nil {
+			fmt.Fprintf(os.Stderr, "error migrating alert %q: %v\n", a.Name, err)
+			os.Exit(1)
+		}
+		migrated++
+	}
+	fmt.Printf("Migrated %d alert(s) to encrypted storage.\n", migrated)
 }
 
 func runServe(args []string) {
@@ -211,13 +285,19 @@ func runServe(args []string) {
 			cancel()
 		}()
 
+		probeAllowPrivate := os.Getenv("UPTOP_ALLOW_PRIVATE_TARGETS") == "true"
+		if probeAllowPrivate {
+			fmt.Println("WARNING: Private target blocking disabled. Monitor URLs can reach internal networks.")
+		}
+
 		if err := cluster.RunProbe(ctx, cluster.ProbeConfig{
-			NodeID:    nodeID,
-			NodeName:  nodeName,
-			Region:    nodeRegion,
-			LeaderURL: clusterPeer,
-			SharedKey: clusterKey,
-			Interval:  30,
+			NodeID:              nodeID,
+			NodeName:            nodeName,
+			Region:              nodeRegion,
+			LeaderURL:           clusterPeer,
+			SharedKey:           clusterKey,
+			Interval:            30,
+			AllowPrivateTargets: probeAllowPrivate,
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "Probe error: %v\n", err)
 		}
@@ -232,21 +312,33 @@ func runServe(args []string) {
 	importKuma := fs.String("import-kuma", "", "Import Uptime Kuma backup JSON file")
 	_ = fs.Parse(args) // ExitOnError: parse errors exit before returning
 
-	var s store.Store
+	var ss *store.SQLStore
 	var dbErr error
 	if *flagDBType == "postgres" {
-		s, dbErr = store.NewPostgresStore(*flagDSN)
-		fmt.Printf("Using PostgreSQL: %s\n", *flagDSN)
+		ss, dbErr = store.NewPostgresStore(*flagDSN)
+		fmt.Printf("Using PostgreSQL: %s\n", redactDSN(*flagDSN))
 	} else {
-		s, dbErr = store.NewSQLiteStore(*flagDSN)
+		ss, dbErr = store.NewSQLiteStore(*flagDSN)
 		fmt.Printf("Using SQLite: %s\n", *flagDSN)
 	}
 	if dbErr != nil {
 		fmt.Printf("Database connection error: %v\n", dbErr)
 		os.Exit(1)
 	}
-	defer s.Close()
+	defer ss.Close()
 
+	if encKey := os.Getenv("UPTOP_ENCRYPTION_KEY"); encKey != "" {
+		enc, err := store.NewEncryptor(encKey)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "encryption key error: %v\n", err)
+			os.Exit(1)
+		}
+		ss.SetEncryptor(enc)
+	} else {
+		fmt.Println("WARNING: No UPTOP_ENCRYPTION_KEY set. Alert credentials stored unencrypted.")
+	}
+
+	var s store.Store = ss
 	if err := s.Init(); err != nil {
 		fmt.Printf("Database init error: %v\n", err)
 		os.Exit(1)
@@ -269,7 +361,12 @@ func runServe(args []string) {
 		fmt.Printf("Imported %d monitors and %d alerts from Uptime Kuma v%s\n", len(backup.Sites), len(backup.Alerts), kb.Version)
 	}
 
-	eng := monitor.NewEngine(s)
+	allowPrivate := os.Getenv("UPTOP_ALLOW_PRIVATE_TARGETS") == "true"
+	if allowPrivate {
+		fmt.Println("WARNING: Private target blocking disabled. Monitor URLs can reach internal networks.")
+	}
+
+	eng := monitor.NewEngineWithOpts(s, allowPrivate)
 	if os.Getenv("UPTOP_INSECURE_SKIP_VERIFY") == "true" {
 		eng.SetInsecureSkipVerify(true)
 	}
@@ -284,11 +381,17 @@ func runServe(args []string) {
 	eng.InitLogs()
 	eng.Start(ctx)
 
+	tlsCert := os.Getenv("UPTOP_TLS_CERT")
+	tlsKey := os.Getenv("UPTOP_TLS_KEY")
+
 	httpSrv := server.Start(server.ServerConfig{
 		Port:         httpPort,
 		EnableStatus: enableStatus,
 		Title:        statusTitle,
 		ClusterKey:   clusterKey,
+		TLSCert:      tlsCert,
+		TLSKey:       tlsKey,
+		ClusterMode:  clusterMode,
 	}, s, eng)
 
 	cluster.Start(ctx, cluster.Config{
