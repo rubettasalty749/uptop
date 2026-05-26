@@ -6,12 +6,21 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/http"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
 	"gitea.lerkolabs.com/lerko/uptop/internal/alert"
 	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 	"gitea.lerkolabs.com/lerko/uptop/internal/store"
+)
+
+const (
+	maxLogEntries    = 100
+	pollInterval     = 5 * time.Second
+	pushGracePeriod  = 5 * time.Second
+	minCheckInterval = 5
 )
 
 type Engine struct {
@@ -78,14 +87,23 @@ func (e *Engine) SetInsecureSkipVerify(skip bool) {
 	e.insecureSkipVerify = skip
 }
 
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+func sanitizeLog(s string) string {
+	s = ansiRe.ReplaceAllString(s, "")
+	s = strings.ReplaceAll(s, "\n", "\\n")
+	s = strings.ReplaceAll(s, "\r", "")
+	return s
+}
+
 func (e *Engine) AddLog(msg string) {
 	e.logMu.Lock()
 	defer e.logMu.Unlock()
 	ts := time.Now().Format("15:04:05")
-	entry := fmt.Sprintf("[%s] %s", ts, msg)
+	entry := fmt.Sprintf("[%s] %s", ts, sanitizeLog(msg))
 	e.logStore = append([]string{entry}, e.logStore...)
-	if len(e.logStore) > 100 {
-		e.logStore = e.logStore[:100]
+	if len(e.logStore) > maxLogEntries {
+		e.logStore = e.logStore[:maxLogEntries]
 	}
 	go func() { _ = e.db.SaveLog(entry) }()
 }
@@ -210,7 +228,7 @@ func (e *Engine) Start(ctx context.Context) {
 			if err != nil {
 				e.AddLog(fmt.Sprintf("Failed to load sites: %v", err))
 				select {
-				case <-time.After(5 * time.Second):
+				case <-time.After(pollInterval):
 				case <-ctx.Done():
 					return
 				}
@@ -244,7 +262,7 @@ func (e *Engine) Start(ctx context.Context) {
 			}
 
 			select {
-			case <-time.After(5 * time.Second):
+			case <-time.After(pollInterval):
 			case <-ctx.Done():
 				return
 			}
@@ -314,7 +332,7 @@ func (e *Engine) monitorRoutine(ctx context.Context, id int) {
 
 		if !e.IsActive() {
 			select {
-			case <-time.After(5 * time.Second):
+			case <-time.After(pollInterval):
 			case <-ctx.Done():
 				return
 			}
@@ -330,7 +348,7 @@ func (e *Engine) monitorRoutine(ctx context.Context, id int) {
 
 		if site.Paused {
 			select {
-			case <-time.After(5 * time.Second):
+			case <-time.After(pollInterval):
 			case <-ctx.Done():
 				return
 			}
@@ -338,8 +356,8 @@ func (e *Engine) monitorRoutine(ctx context.Context, id int) {
 		}
 
 		interval := site.Interval
-		if interval < 5 {
-			interval = 5
+		if interval < minCheckInterval {
+			interval = minCheckInterval
 		}
 		jitter := time.Duration(rand.IntN(interval*100)) * time.Millisecond //nolint:gosec // non-security jitter
 		select {
@@ -380,7 +398,7 @@ func (e *Engine) checkByID(id int) {
 }
 
 func (e *Engine) checkPush(site models.Site) {
-	deadline := site.LastCheck.Add(time.Duration(site.Interval) * time.Second).Add(5 * time.Second)
+	deadline := site.LastCheck.Add(time.Duration(site.Interval) * time.Second).Add(pushGracePeriod)
 	if time.Now().After(deadline) {
 		e.handleStatusChange(site, "DOWN", 0, 0)
 	} else if site.Status != "UP" {

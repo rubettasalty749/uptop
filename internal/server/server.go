@@ -18,6 +18,8 @@ import (
 	"gitea.lerkolabs.com/lerko/uptop/internal/store"
 )
 
+const maxRequestBody = 1 << 20
+
 func checkSecret(got, want string) bool {
 	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
@@ -204,6 +206,10 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 
 	// 1. Push Heartbeat
 	mux.HandleFunc("/api/push", RateLimit(pushRL, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		token := extractBearerToken(r)
 		if token == "" {
 			if qt := r.URL.Query().Get("token"); qt != "" {
@@ -225,6 +231,10 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 
 	// 2. Health Check (For Cluster Follower)
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		if cfg.ClusterKey != "" && !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -263,7 +273,7 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 		var data models.Backup
 		if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -287,7 +297,7 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 		var kb importer.KumaBackup
 		if err := json.NewDecoder(r.Body).Decode(&kb); err != nil {
 			log.Printf("Invalid Kuma JSON: %v", err)
@@ -313,7 +323,7 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 		var req struct {
 			ID      string `json:"id"`
 			Name    string `json:"name"`
@@ -340,6 +350,10 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 
 	// 7. Probe Assignment Fetch
 	mux.HandleFunc("/api/probe/assignments", RateLimit(probeRL, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		if cfg.ClusterKey == "" || !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -385,7 +399,7 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 		var req struct {
 			NodeID  string `json:"node_id"`
 			Results []struct {
@@ -416,6 +430,10 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 
 	// 9. Prometheus Metrics
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		if !cfg.MetricsPublic && cfg.ClusterKey != "" {
 			if !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)

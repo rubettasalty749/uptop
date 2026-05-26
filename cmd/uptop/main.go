@@ -323,7 +323,7 @@ func runServe(args []string) {
 		fmt.Printf("Using SQLite: %s\n", *flagDSN)
 	}
 	if dbErr != nil {
-		fmt.Printf("Database connection error: %v\n", dbErr)
+		fmt.Fprintf(os.Stderr, "database connection error: %v\n", dbErr)
 		os.Exit(1)
 	}
 	defer ss.Close()
@@ -341,7 +341,7 @@ func runServe(args []string) {
 
 	var s store.Store = ss
 	if err := s.Init(); err != nil {
-		fmt.Printf("Database init error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "database init error: %v\n", err)
 		os.Exit(1)
 	}
 	if *demo {
@@ -351,12 +351,12 @@ func runServe(args []string) {
 	if *importKuma != "" {
 		kb, err := importer.LoadKumaFile(*importKuma)
 		if err != nil {
-			fmt.Printf("Kuma import error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "kuma import error: %v\n", err)
 			os.Exit(1)
 		}
 		backup := importer.ConvertKuma(kb)
 		if err := s.ImportData(backup); err != nil {
-			fmt.Printf("Import failed: %v\n", err)
+			fmt.Fprintf(os.Stderr, "import failed: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Printf("Imported %d monitors and %d alerts from Uptime Kuma v%s\n", len(backup.Sites), len(backup.Alerts), kb.Version)
@@ -409,7 +409,7 @@ func runServe(args []string) {
 	if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
 		p := tea.NewProgram(tui.InitialModel(true, s, eng), tea.WithAltScreen(), tea.WithMouseCellMotion())
 		if _, err := p.Run(); err != nil {
-			fmt.Printf("Error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		}
 	} else {
 		fmt.Println("uptop running in HEADLESS mode")
@@ -437,7 +437,7 @@ func runServe(args []string) {
 func startSSHServer(port int, db store.Store, eng *monitor.Engine, kc *keyCache) *ssh.Server {
 	s, err := wish.NewServer(
 		wish.WithAddress(fmt.Sprintf(":%d", port)),
-		wish.WithHostKeyPath(".ssh/id_ed25519"),
+		wish.WithHostKeyPath(envOrDefault("UPTOP_SSH_HOST_KEY", ".ssh/id_ed25519")),
 		wish.WithPublicKeyAuth(func(ctx ssh.Context, key ssh.PublicKey) bool {
 			return kc.IsAllowed(key)
 		}),
@@ -448,7 +448,7 @@ func startSSHServer(port int, db store.Store, eng *monitor.Engine, kc *keyCache)
 		),
 	)
 	if err != nil {
-		fmt.Printf("SSH server error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "SSH server error: %v\n", err)
 		return nil
 	}
 	go func() {

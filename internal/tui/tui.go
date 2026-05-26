@@ -3,13 +3,14 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
-	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
-	"gitea.lerkolabs.com/lerko/uptop/internal/store"
 	"math"
 	"sort"
 	"strings"
 	"time"
+
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
+	"gitea.lerkolabs.com/lerko/uptop/internal/store"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -956,8 +957,9 @@ func siteOrder(s models.Site) int {
 }
 
 func limitStr(text string, max int) string {
-	if len(text) > max {
-		return text[:max-3] + "..."
+	runes := []rune(text)
+	if len(runes) > max {
+		return string(runes[:max-3]) + "..."
 	}
 	return text
 }
