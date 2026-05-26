@@ -3,7 +3,7 @@ name: Publish Release
 on:
   push:
     tags:
-      - 'v*'
+      - '[0-9]*'
 
 jobs:
   push_to_registry:
@@ -31,9 +31,7 @@ jobs:
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/uptop
           tags: |
-            # This turns git tag "v1.0.0" into docker tag "1.0.0"
-            type=semver,pattern={{version}}
-            # This updates the "latest" tag to this version
+            type=match,pattern=\d+\.\d+\.\d+
             type=raw,value=latest
 
       - name: Build and push
@@ -43,3 +41,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}

@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
+	"strings"
 	"time"
 
 	"gitea.lerkolabs.com/lerko/uptop/internal/models"
@@ -24,6 +24,9 @@ func NewSQLStore(driverName, dsn string, dialect Dialect) (*SQLStore, error) {
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
 	_, isDollar := dialect.(*PostgresDialect)
 	return &SQLStore{db: db, dialect: dialect, dollar: isDollar}, nil
 }
@@ -70,7 +73,11 @@ func (s *SQLStore) Init() error {
 	}
 	for _, m := range s.dialect.MigrationsSQL() {
 		if _, err := s.db.Exec(m); err != nil {
-			log.Printf("migration error: %v", err)
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "already exists") || strings.Contains(errMsg, "duplicate column") {
+				continue
+			}
+			return fmt.Errorf("migration failed: %w", err)
 		}
 	}
 	return nil
@@ -342,10 +349,15 @@ func (s *SQLStore) SaveCheckFromNode(siteID int, nodeID string, latencyNs int64,
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(s.q(`DELETE FROM check_history WHERE site_id = ? AND id NOT IN (
-		SELECT id FROM check_history WHERE site_id = ? ORDER BY checked_at DESC LIMIT 1000
-	)`), siteID, siteID)
-	return err
+	var count int
+	_ = s.db.QueryRow(s.q("SELECT COUNT(*) FROM check_history WHERE site_id = ?"), siteID).Scan(&count)
+	if count > 1100 {
+		_, err = s.db.Exec(s.q(`DELETE FROM check_history WHERE site_id = ? AND id NOT IN (
+			SELECT id FROM check_history WHERE site_id = ? ORDER BY checked_at DESC LIMIT 1000
+		)`), siteID, siteID)
+		return err
+	}
+	return nil
 }
 
 func (s *SQLStore) RegisterNode(node models.ProbeNode) error {
