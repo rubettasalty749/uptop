@@ -33,7 +33,7 @@ jobs:
           args: release --clean
         env:
           GORELEASER_FORCE_TOKEN: gitea
-          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+          GITEA_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
   docker:
     runs-on: ubuntu-latest
