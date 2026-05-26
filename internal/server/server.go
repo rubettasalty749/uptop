@@ -22,6 +22,31 @@ func checkSecret(got, want string) bool {
 	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
+func extractBearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimPrefix(auth, "Bearer ")
+	}
+	return ""
+}
+
+var sensitiveKeys = map[string]bool{
+	"pass": true, "password": true, "token": true,
+	"routing_key": true, "user": true, "username": true,
+}
+
+func redactSettings(settings map[string]string) map[string]string {
+	redacted := make(map[string]string, len(settings))
+	for k, v := range settings {
+		if sensitiveKeys[k] && v != "" {
+			redacted[k] = "***REDACTED***"
+		} else {
+			redacted[k] = v
+		}
+	}
+	return redacted
+}
+
 var statusTpl = template.Must(template.New("status").Parse(`
 <!DOCTYPE html>
 <html>
@@ -154,24 +179,37 @@ var statusTpl = template.Must(template.New("status").Parse(`
 </html>`))
 
 type ServerConfig struct {
-	Port         int
-	EnableStatus bool
-	Title        string
-	ClusterKey   string
-	TLSCert      string
-	TLSKey       string
-	ClusterMode  string
+	Port          int
+	EnableStatus  bool
+	Title         string
+	ClusterKey    string
+	TLSCert       string
+	TLSKey        string
+	ClusterMode   string
+	MetricsPublic bool
 }
 
 func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 	if cfg.ClusterKey == "" {
 		fmt.Println("WARNING: No UPTOP_CLUSTER_SECRET set. Cluster API endpoints are unauthenticated.")
 	}
+
+	pushRL := NewRateLimiter(60)
+	probeRL := NewRateLimiter(30)
+	backupRL := NewRateLimiter(10)
+	statusRL := NewRateLimiter(120)
+
 	mux := http.NewServeMux()
 
 	// 1. Push Heartbeat
-	mux.HandleFunc("/api/push", func(w http.ResponseWriter, r *http.Request) {
-		token := r.URL.Query().Get("token")
+	mux.HandleFunc("/api/push", RateLimit(pushRL, func(w http.ResponseWriter, r *http.Request) {
+		token := extractBearerToken(r)
+		if token == "" {
+			if qt := r.URL.Query().Get("token"); qt != "" {
+				token = qt
+				log.Printf("DEPRECATED: push token in query string — use Authorization: Bearer header instead")
+			}
+		}
 		if token == "" {
 			http.Error(w, "Missing token", http.StatusBadRequest)
 			return
@@ -182,7 +220,7 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 		} else {
 			http.Error(w, "Invalid Token", http.StatusNotFound)
 		}
-	})
+	}))
 
 	// 2. Health Check (For Cluster Follower)
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -195,7 +233,7 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 	})
 
 	// 3. Config Export
-	mux.HandleFunc("/api/backup/export", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/backup/export", RateLimit(backupRL, func(w http.ResponseWriter, r *http.Request) {
 		if cfg.ClusterKey == "" || !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
 			http.Error(w, "Unauthorized: UPTOP_CLUSTER_SECRET required", http.StatusUnauthorized)
 			return
@@ -206,11 +244,16 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 			http.Error(w, "Export failed", http.StatusInternalServerError)
 			return
 		}
+		if r.URL.Query().Get("redact_secrets") != "false" {
+			for i := range data.Alerts {
+				data.Alerts[i].Settings = redactSettings(data.Alerts[i].Settings)
+			}
+		}
 		_ = json.NewEncoder(w).Encode(data) //nolint:errcheck
-	})
+	}))
 
 	// 4. Config Import
-	mux.HandleFunc("/api/backup/import", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/backup/import", RateLimit(backupRL, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "POST required", http.StatusMethodNotAllowed)
 			return
@@ -231,10 +274,10 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 			return
 		}
 		_, _ = w.Write([]byte("Import Successful"))
-	})
+	}))
 
 	// 5. Kuma Import
-	mux.HandleFunc("/api/import/kuma", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/import/kuma", RateLimit(backupRL, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "POST required", http.StatusMethodNotAllowed)
 			return
@@ -257,10 +300,10 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 			return
 		}
 		fmt.Fprintf(w, "Imported %d monitors, %d alerts from Kuma v%s", len(backup.Sites), len(backup.Alerts), kb.Version)
-	})
+	}))
 
 	// 6. Probe Registration
-	mux.HandleFunc("/api/probe/register", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/probe/register", RateLimit(probeRL, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "POST required", http.StatusMethodNotAllowed)
 			return
@@ -292,10 +335,10 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true}) //nolint:errcheck
-	})
+	}))
 
 	// 7. Probe Assignment Fetch
-	mux.HandleFunc("/api/probe/assignments", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/probe/assignments", RateLimit(probeRL, func(w http.ResponseWriter, r *http.Request) {
 		if cfg.ClusterKey == "" || !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -329,10 +372,10 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string][]models.Site{"sites": assigned}) //nolint:errcheck
-	})
+	}))
 
 	// 8. Probe Result Submission
-	mux.HandleFunc("/api/probe/results", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/probe/results", RateLimit(probeRL, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "POST required", http.StatusMethodNotAllowed)
 			return
@@ -368,15 +411,23 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 			log.Printf("Failed to update node last seen: %v", err)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true}) //nolint:errcheck
-	})
+	}))
 
 	// 9. Prometheus Metrics
-	mux.HandleFunc("/metrics", metrics.Handler(eng))
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		if !cfg.MetricsPublic && cfg.ClusterKey != "" {
+			if !checkSecret(r.Header.Get("X-Upkeep-Secret"), cfg.ClusterKey) {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		metrics.Handler(eng)(w, r)
+	})
 
 	// 10. Status Page
 	if cfg.EnableStatus {
-		mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) { renderStatusPage(w, cfg.Title, eng) })
-		mux.HandleFunc("/status/json", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/status", RateLimit(statusRL, func(w http.ResponseWriter, r *http.Request) { renderStatusPage(w, cfg.Title, eng) }))
+		mux.HandleFunc("/status/json", RateLimit(statusRL, func(w http.ResponseWriter, r *http.Request) {
 			state := eng.GetLiveState()
 			activeWindows, _ := s.GetActiveMaintenanceWindows()
 			maintSet := make(map[int]bool)
@@ -400,7 +451,7 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(state) //nolint:errcheck
-		})
+		}))
 	}
 
 	if cfg.ClusterMode != "" && cfg.ClusterMode != "leader" && cfg.TLSCert == "" {
@@ -413,7 +464,14 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 	}
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
-	srv := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	go func() {
 		if cfg.TLSCert != "" && cfg.TLSKey != "" {
 			fmt.Printf("HTTPS Server listening on %s\n", addr)
