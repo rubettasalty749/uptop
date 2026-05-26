@@ -10,7 +10,14 @@ import (
 type SQLiteDialect struct{}
 
 func NewSQLiteStore(path string) (*SQLStore, error) {
-	return NewSQLStore("sqlite3", path, &SQLiteDialect{})
+	s, err := NewSQLStore("sqlite3", path, &SQLiteDialect{})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		log.Printf("WAL mode failed: %v", err)
+	}
+	return s, nil
 }
 
 func (d *SQLiteDialect) DriverName() string { return "sqlite3" }

@@ -1,5 +1,5 @@
 # --- Stage 1: Builder ---
-FROM golang:alpine AS builder
+FROM golang:1.24-alpine3.21 AS builder
 RUN apk add --no-cache gcc musl-dev
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -12,7 +12,7 @@ ARG BUILD_DATE=unknown
 RUN go build -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${BUILD_DATE}" -o uptop ./cmd/uptop/main.go
 
 # --- Stage 2: Runner ---
-FROM alpine:latest
+FROM alpine:3.21
 WORKDIR /app
 RUN apk add --no-cache ca-certificates openssh-client
 RUN mkdir /data

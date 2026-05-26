@@ -187,6 +187,7 @@ type ServerConfig struct {
 	TLSKey        string
 	ClusterMode   string
 	MetricsPublic bool
+	CORSOrigin    string
 }
 
 func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
@@ -449,6 +450,9 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 				}
 				state[id] = site
 			}
+			if cfg.CORSOrigin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", cfg.CORSOrigin)
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(state) //nolint:errcheck
 		}))
@@ -458,9 +462,9 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 		fmt.Println("WARNING: Cluster mode active without TLS. Secrets transmitted in cleartext.")
 	}
 
-	var handler http.Handler = mux
+	handler := loggingMiddleware(securityHeadersMiddleware(mux))
 	if cfg.TLSCert != "" {
-		handler = hstsMiddleware(mux)
+		handler = hstsMiddleware(handler)
 	}
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
@@ -486,6 +490,36 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 		}
 	}()
 	return srv
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	code int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	w.code = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		sw := &statusWriter{ResponseWriter: w, code: 200}
+		next.ServeHTTP(sw, r)
+		path := strings.ReplaceAll(strings.ReplaceAll(r.URL.Path, "\n", ""), "\r", "")
+		log.Printf("%s %s %d %s %s", r.Method, path, sw.code, time.Since(start).Round(time.Millisecond), clientIP(r)) //nolint:gosec // path sanitized above
+	})
+}
+
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func hstsMiddleware(next http.Handler) http.Handler {

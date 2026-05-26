@@ -2,10 +2,11 @@ package config
 
 import (
 	"fmt"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
-	"gitea.lerkolabs.com/lerko/uptop/internal/store"
 	"os"
 	"sort"
+
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/store"
 
 	"gopkg.in/yaml.v3"
 )
@@ -142,7 +143,7 @@ func WriteFile(f *File, path string) error {
 		_, err = os.Stdout.Write(data)
 		return err
 	}
-	return os.WriteFile(path, data, 0644) //nolint:gosec // config files should be group-readable
+	return os.WriteFile(path, data, 0600)
 }
 
 func LoadFile(path string) (*File, error) {

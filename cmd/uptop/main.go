@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -393,6 +394,7 @@ func runServe(args []string) {
 		TLSKey:        tlsKey,
 		ClusterMode:   clusterMode,
 		MetricsPublic: os.Getenv("UPTOP_METRICS_PUBLIC") == "true",
+		CORSOrigin:    os.Getenv("UPTOP_CORS_ORIGIN"),
 	}, s, eng)
 
 	cluster.Start(ctx, cluster.Config{
@@ -401,7 +403,8 @@ func runServe(args []string) {
 		SharedKey: clusterKey,
 	}, eng)
 
-	sshSrv := startSSHServer(*port, s, eng)
+	kc := newKeyCache(s)
+	sshSrv := startSSHServer(*port, s, eng, kc)
 
 	if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
 		p := tea.NewProgram(tui.InitialModel(true, s, eng), tea.WithAltScreen(), tea.WithMouseCellMotion())
@@ -431,12 +434,12 @@ func runServe(args []string) {
 	}
 }
 
-func startSSHServer(port int, db store.Store, eng *monitor.Engine) *ssh.Server {
+func startSSHServer(port int, db store.Store, eng *monitor.Engine, kc *keyCache) *ssh.Server {
 	s, err := wish.NewServer(
 		wish.WithAddress(fmt.Sprintf(":%d", port)),
 		wish.WithHostKeyPath(".ssh/id_ed25519"),
 		wish.WithPublicKeyAuth(func(ctx ssh.Context, key ssh.PublicKey) bool {
-			return isKeyAllowed(db, key)
+			return kc.IsAllowed(key)
 		}),
 		wish.WithMiddleware(
 			bm.Middleware(func(s ssh.Session) (tea.Model, []tea.ProgramOption) {
@@ -505,17 +508,56 @@ func seedDemoData(s store.Store) {
 	}
 }
 
-func isKeyAllowed(db store.Store, incomingKey ssh.PublicKey) bool {
-	users, err := db.GetAllUsers()
+type keyCache struct {
+	mu      sync.RWMutex
+	keys    []ssh.PublicKey
+	updated time.Time
+	ttl     time.Duration
+	db      store.Store
+}
+
+func newKeyCache(db store.Store) *keyCache {
+	return &keyCache{db: db, ttl: 30 * time.Second}
+}
+
+func (c *keyCache) refresh() {
+	users, err := c.db.GetAllUsers()
 	if err != nil {
-		return false
+		return
 	}
+	keys := make([]ssh.PublicKey, 0, len(users))
 	for _, u := range users {
-		allowedKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(u.PublicKey))
+		k, _, _, _, err := ssh.ParseAuthorizedKey([]byte(u.PublicKey))
 		if err != nil {
 			continue
 		}
-		if ssh.KeysEqual(allowedKey, incomingKey) {
+		keys = append(keys, k)
+	}
+	c.mu.Lock()
+	c.keys = keys
+	c.updated = time.Now()
+	c.mu.Unlock()
+}
+
+func (c *keyCache) Invalidate() {
+	c.mu.Lock()
+	c.updated = time.Time{}
+	c.mu.Unlock()
+}
+
+func (c *keyCache) IsAllowed(incomingKey ssh.PublicKey) bool {
+	c.mu.RLock()
+	stale := time.Since(c.updated) > c.ttl
+	c.mu.RUnlock()
+
+	if stale {
+		c.refresh()
+	}
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for _, k := range c.keys {
+		if ssh.KeysEqual(k, incomingKey) {
 			return true
 		}
 	}
