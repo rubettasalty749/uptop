@@ -11,19 +11,21 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
-    container:
-      image: golang:1.24-alpine3.21
     defaults:
       run:
         shell: sh
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
       - uses: actions/cache@v4
         with:
           path: |
-            /go/pkg/mod
-            /root/.cache/go-build
+            ~/go/pkg/mod
+            ~/.cache/go-build
           key: go-${{ hashFiles('go.sum') }}
           restore-keys: go-
 
@@ -38,6 +40,9 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: sh
     steps:
       - uses: actions/checkout@v4
 
@@ -51,6 +56,9 @@ jobs:
 
   vulncheck:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: sh
     steps:
       - uses: actions/checkout@v4
 
