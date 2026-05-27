@@ -79,6 +79,15 @@ func (d *SQLiteDialect) CreateTablesSQL() []string {
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS state_changes (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			site_id INTEGER NOT NULL,
+			from_status TEXT NOT NULL,
+			to_status TEXT NOT NULL,
+			error_reason TEXT DEFAULT '',
+			changed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_state_changes_site ON state_changes(site_id, changed_at DESC)`,
 	}
 }
 

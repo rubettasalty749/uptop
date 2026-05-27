@@ -127,9 +127,10 @@ func probeFetchAssignments(ctx context.Context, client *http.Client, cfg ProbeCo
 }
 
 type probeResultItem struct {
-	SiteID    int   `json:"site_id"`
-	LatencyNs int64 `json:"latency_ns"`
-	IsUp      bool  `json:"is_up"`
+	SiteID      int    `json:"site_id"`
+	LatencyNs   int64  `json:"latency_ns"`
+	IsUp        bool   `json:"is_up"`
+	ErrorReason string `json:"error_reason,omitempty"`
 }
 
 func probeExecuteChecks(ctx context.Context, sites []models.Site, strict, insecure *http.Client, allowPrivate bool) []probeResultItem {
@@ -154,9 +155,10 @@ loop:
 			cr := monitor.RunCheck(s, strict, insecure, false, allowPrivate)
 			mu.Lock()
 			results = append(results, probeResultItem{
-				SiteID:    s.ID,
-				LatencyNs: cr.LatencyNs,
-				IsUp:      cr.Status == "UP",
+				SiteID:      s.ID,
+				LatencyNs:   cr.LatencyNs,
+				IsUp:        cr.Status == "UP",
+				ErrorReason: cr.ErrorReason,
 			})
 			mu.Unlock()
 		}(site)

@@ -27,14 +27,26 @@ type Site struct {
 	Paused         bool
 	Regions        string
 
-	FailureCount   int
-	Status         string
-	StatusCode     int
-	Latency        time.Duration
-	CertExpiry     time.Time
-	HasSSL         bool
-	LastCheck      time.Time
-	SentSSLWarning bool
+	FailureCount    int
+	Status          string
+	StatusCode      int
+	Latency         time.Duration
+	CertExpiry      time.Time
+	HasSSL          bool
+	LastCheck       time.Time
+	SentSSLWarning  bool
+	LastError       string
+	StatusChangedAt time.Time
+	LastSuccessAt   time.Time
+}
+
+type StateChange struct {
+	ID          int
+	SiteID      int
+	FromStatus  string
+	ToStatus    string
+	ErrorReason string
+	ChangedAt   time.Time
 }
 
 type AlertConfig struct {

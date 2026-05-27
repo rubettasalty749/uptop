@@ -2,13 +2,14 @@ package metrics
 
 import (
 	"context"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
-	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
 )
 
 type mockStore struct {
@@ -58,13 +59,15 @@ func (m *mockStore) GetActiveMaintenanceWindows() ([]models.MaintenanceWindow, e
 func (m *mockStore) GetAllMaintenanceWindows(int) ([]models.MaintenanceWindow, error) {
 	return nil, nil
 }
-func (m *mockStore) AddMaintenanceWindow(models.MaintenanceWindow) error { return nil }
-func (m *mockStore) EndMaintenanceWindow(int) error                      { return nil }
-func (m *mockStore) DeleteMaintenanceWindow(int) error                   { return nil }
-func (m *mockStore) IsMonitorInMaintenance(int) (bool, error)            { return false, nil }
-func (m *mockStore) GetPreference(string) (string, error)                { return "", nil }
-func (m *mockStore) SetPreference(string, string) error                  { return nil }
-func (m *mockStore) Close() error                                        { return nil }
+func (m *mockStore) AddMaintenanceWindow(models.MaintenanceWindow) error    { return nil }
+func (m *mockStore) EndMaintenanceWindow(int) error                         { return nil }
+func (m *mockStore) DeleteMaintenanceWindow(int) error                      { return nil }
+func (m *mockStore) IsMonitorInMaintenance(int) (bool, error)               { return false, nil }
+func (m *mockStore) GetPreference(string) (string, error)                   { return "", nil }
+func (m *mockStore) SetPreference(string, string) error                     { return nil }
+func (m *mockStore) SaveStateChange(int, string, string, string) error      { return nil }
+func (m *mockStore) GetStateChanges(int, int) ([]models.StateChange, error) { return nil, nil }
+func (m *mockStore) Close() error                                           { return nil }
 
 func TestMetricsHandler(t *testing.T) {
 	ms := &mockStore{

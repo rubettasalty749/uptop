@@ -38,6 +38,10 @@ type Store interface {
 	SaveCheckFromNode(siteID int, nodeID string, latencyNs int64, isUp bool) error
 	LoadAllHistory(limit int) (map[int][]models.CheckRecord, error)
 
+	// State Changes
+	SaveStateChange(siteID int, fromStatus, toStatus, errorReason string) error
+	GetStateChanges(siteID int, limit int) ([]models.StateChange, error)
+
 	// Nodes
 	RegisterNode(node models.ProbeNode) error
 	GetNode(id string) (models.ProbeNode, error)

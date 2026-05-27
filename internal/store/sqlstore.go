@@ -347,6 +347,29 @@ func (s *SQLStore) DeleteUser(id int) error {
 	return err
 }
 
+func (s *SQLStore) SaveStateChange(siteID int, fromStatus, toStatus, errorReason string) error {
+	_, err := s.db.Exec(s.q("INSERT INTO state_changes (site_id, from_status, to_status, error_reason) VALUES (?, ?, ?, ?)"),
+		siteID, fromStatus, toStatus, errorReason)
+	return err
+}
+
+func (s *SQLStore) GetStateChanges(siteID int, limit int) ([]models.StateChange, error) {
+	rows, err := s.db.Query(s.q("SELECT id, site_id, from_status, to_status, error_reason, changed_at FROM state_changes WHERE site_id = ? ORDER BY changed_at DESC LIMIT ?"), siteID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var changes []models.StateChange
+	for rows.Next() {
+		var sc models.StateChange
+		if err := rows.Scan(&sc.ID, &sc.SiteID, &sc.FromStatus, &sc.ToStatus, &sc.ErrorReason, &sc.ChangedAt); err != nil {
+			return changes, err
+		}
+		changes = append(changes, sc)
+	}
+	return changes, rows.Err()
+}
+
 func (s *SQLStore) SaveCheck(siteID int, latencyNs int64, isUp bool) error {
 	return s.SaveCheckFromNode(siteID, "", latencyNs, isUp)
 }

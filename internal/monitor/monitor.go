@@ -283,6 +283,9 @@ func (e *Engine) UpdateSiteConfig(site models.Site) {
 		site.LastCheck = existing.LastCheck
 		site.SentSSLWarning = existing.SentSSLWarning
 		site.FailureCount = existing.FailureCount
+		site.LastError = existing.LastError
+		site.StatusChangedAt = existing.StatusChangedAt
+		site.LastSuccessAt = existing.LastSuccessAt
 		e.liveState[site.ID] = site
 		e.addToTokenIndex(site)
 	}
@@ -393,33 +396,45 @@ func (e *Engine) checkByID(id int) {
 		updatedSite.CertExpiry = result.CertExpiry
 		updatedSite.Latency = time.Duration(result.LatencyNs)
 		updatedSite.LastCheck = time.Now()
-		e.handleStatusChange(updatedSite, result.Status, result.StatusCode, time.Duration(result.LatencyNs))
+		e.handleStatusChange(updatedSite, result.Status, result.StatusCode, time.Duration(result.LatencyNs), result.ErrorReason)
 	}
 }
 
 func (e *Engine) checkPush(site models.Site) {
 	deadline := site.LastCheck.Add(time.Duration(site.Interval) * time.Second).Add(pushGracePeriod)
 	if time.Now().After(deadline) {
-		e.handleStatusChange(site, "DOWN", 0, 0)
+		e.handleStatusChange(site, "DOWN", 0, 0, "heartbeat missed")
 	} else if site.Status != "UP" {
-		e.handleStatusChange(site, "UP", 200, 0)
+		e.handleStatusChange(site, "UP", 200, 0, "")
 	}
 }
 
-func (e *Engine) handleStatusChange(site models.Site, rawStatus string, code int, latency time.Duration) {
+func (e *Engine) handleStatusChange(site models.Site, rawStatus string, code int, latency time.Duration, errorReason string) {
 	if !e.IsActive() {
 		return
 	}
 
 	newState := site
 	newState.StatusCode = code
+	newState.LastError = errorReason
+
+	if rawStatus == "UP" {
+		newState.LastSuccessAt = time.Now()
+		newState.LastError = ""
+	} else {
+		newState.LastSuccessAt = site.LastSuccessAt
+	}
 
 	if site.Status == "UP" && rawStatus != "UP" {
 		newState.FailureCount++
 		if newState.FailureCount > site.MaxRetries {
 			newState.Status = rawStatus
 			newState.FailureCount = site.MaxRetries + 1
-			e.AddLog(fmt.Sprintf("Monitor '%s' confirmed DOWN", site.Name))
+			if errorReason != "" {
+				e.AddLog(fmt.Sprintf("Monitor '%s' confirmed DOWN: %s", site.Name, errorReason))
+			} else {
+				e.AddLog(fmt.Sprintf("Monitor '%s' confirmed DOWN", site.Name))
+			}
 		} else {
 			e.AddLog(fmt.Sprintf("Monitor '%s' failed check %d/%d", site.Name, newState.FailureCount, site.MaxRetries))
 		}
@@ -429,6 +444,14 @@ func (e *Engine) handleStatusChange(site models.Site, rawStatus string, code int
 	} else {
 		newState.Status = rawStatus
 		newState.FailureCount = site.MaxRetries + 1
+	}
+
+	if newState.Status != site.Status && site.Status != "PENDING" {
+		newState.StatusChangedAt = time.Now()
+	} else if site.StatusChangedAt.IsZero() && newState.Status != "PENDING" {
+		newState.StatusChangedAt = time.Now()
+	} else {
+		newState.StatusChangedAt = site.StatusChangedAt
 	}
 
 	inMaint := e.isInMaintenance(site.ID)
@@ -455,12 +478,19 @@ func (e *Engine) handleStatusChange(site models.Site, rawStatus string, code int
 
 	e.recordCheck(site.ID, latency, rawStatus == "UP")
 
+	if newState.Status != site.Status && site.Status != "PENDING" {
+		go func() { _ = e.db.SaveStateChange(site.ID, site.Status, newState.Status, errorReason) }()
+	}
+
 	isBroken := func(s string) bool { return s == "DOWN" || s == "SSL EXP" }
 	if !isBroken(site.Status) && isBroken(newState.Status) && newState.Status != "PENDING" {
 		if inMaint {
 			e.AddLog(fmt.Sprintf("Monitor '%s' is DOWN (alerts suppressed — maintenance)", site.Name))
 		} else {
 			msg := fmt.Sprintf("Monitor '%s' is DOWN (%s)", site.Name, rawStatus)
+			if errorReason != "" {
+				msg = fmt.Sprintf("Monitor '%s' is DOWN: %s", site.Name, errorReason)
+			}
 			if site.Type == "push" {
 				msg = fmt.Sprintf("Push Monitor '%s' missed heartbeat.", site.Name)
 			}
@@ -554,16 +584,17 @@ func (e *Engine) SetAggStrategy(strategy AggregationStrategy) {
 	e.aggStrategy = strategy
 }
 
-func (e *Engine) IngestProbeResult(nodeID string, siteID int, latencyNs int64, isUp bool) {
+func (e *Engine) IngestProbeResult(nodeID string, siteID int, latencyNs int64, isUp bool, errorReason string) {
 	e.probeResultsMu.Lock()
 	if e.probeResults[siteID] == nil {
 		e.probeResults[siteID] = make(map[string]NodeResult)
 	}
 	e.probeResults[siteID][nodeID] = NodeResult{
-		NodeID:    nodeID,
-		IsUp:      isUp,
-		LatencyNs: latencyNs,
-		CheckedAt: time.Now(),
+		NodeID:      nodeID,
+		IsUp:        isUp,
+		LatencyNs:   latencyNs,
+		CheckedAt:   time.Now(),
+		ErrorReason: errorReason,
 	}
 	results := make([]NodeResult, 0, len(e.probeResults[siteID]))
 	for _, r := range e.probeResults[siteID] {
@@ -588,7 +619,7 @@ func (e *Engine) IngestProbeResult(nodeID string, siteID int, latencyNs int64, i
 	updatedSite := site
 	updatedSite.Latency = time.Duration(avgLatency)
 	updatedSite.LastCheck = time.Now()
-	e.handleStatusChange(updatedSite, rawStatus, 0, time.Duration(avgLatency))
+	e.handleStatusChange(updatedSite, rawStatus, 0, time.Duration(avgLatency), errorReason)
 }
 
 func (e *Engine) GetProbeResults(siteID int) map[string]NodeResult {
@@ -600,4 +631,12 @@ func (e *Engine) GetProbeResults(siteID int) map[string]NodeResult {
 		cp[k] = v
 	}
 	return cp
+}
+
+func (e *Engine) GetStateChanges(siteID int, limit int) []models.StateChange {
+	changes, err := e.db.GetStateChanges(siteID, limit)
+	if err != nil {
+		return nil
+	}
+	return changes
 }

@@ -72,6 +72,15 @@ func (d *PostgresDialect) CreateTablesSQL() []string {
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS state_changes (
+			id SERIAL PRIMARY KEY,
+			site_id INTEGER NOT NULL,
+			from_status TEXT NOT NULL,
+			to_status TEXT NOT NULL,
+			error_reason TEXT DEFAULT '',
+			changed_at TIMESTAMP DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_state_changes_site ON state_changes(site_id, changed_at DESC)`,
 	}
 }
 

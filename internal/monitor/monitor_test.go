@@ -2,10 +2,11 @@ package monitor
 
 import (
 	"fmt"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 	"sync"
 	"testing"
 	"time"
+
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 )
 
 // --- Mock Store ---
@@ -68,12 +69,14 @@ func (m *mockStore) GetActiveMaintenanceWindows() ([]models.MaintenanceWindow, e
 func (m *mockStore) GetAllMaintenanceWindows(int) ([]models.MaintenanceWindow, error) {
 	return nil, nil
 }
-func (m *mockStore) AddMaintenanceWindow(models.MaintenanceWindow) error { return nil }
-func (m *mockStore) EndMaintenanceWindow(int) error                      { return nil }
-func (m *mockStore) DeleteMaintenanceWindow(int) error                   { return nil }
-func (m *mockStore) GetPreference(string) (string, error)                { return "", nil }
-func (m *mockStore) SetPreference(string, string) error                  { return nil }
-func (m *mockStore) Close() error                                        { return nil }
+func (m *mockStore) AddMaintenanceWindow(models.MaintenanceWindow) error    { return nil }
+func (m *mockStore) EndMaintenanceWindow(int) error                         { return nil }
+func (m *mockStore) DeleteMaintenanceWindow(int) error                      { return nil }
+func (m *mockStore) GetPreference(string) (string, error)                   { return "", nil }
+func (m *mockStore) SetPreference(string, string) error                     { return nil }
+func (m *mockStore) SaveStateChange(int, string, string, string) error      { return nil }
+func (m *mockStore) GetStateChanges(int, int) ([]models.StateChange, error) { return nil, nil }
+func (m *mockStore) Close() error                                           { return nil }
 
 func (m *mockStore) GetAllAlerts() ([]models.AlertConfig, error) {
 	m.mu.Lock()
@@ -174,7 +177,7 @@ func TestHandleStatusChange_PendingToUp(t *testing.T) {
 	site := models.Site{ID: 1, Name: "test", Status: "PENDING", MaxRetries: 3, AlertID: 1}
 	injectSite(e, site)
 
-	e.handleStatusChange(site, "UP", 200, 10*time.Millisecond)
+	e.handleStatusChange(site, "UP", 200, 10*time.Millisecond, "")
 
 	s, _ := getSite(e, 1)
 	if s.Status != "UP" {
@@ -195,7 +198,7 @@ func TestHandleStatusChange_UpIncrementFailure(t *testing.T) {
 	site := models.Site{ID: 1, Name: "test", Status: "UP", MaxRetries: 3, FailureCount: 0}
 	injectSite(e, site)
 
-	e.handleStatusChange(site, "DOWN", 500, 0)
+	e.handleStatusChange(site, "DOWN", 500, 0, "test error")
 
 	s, _ := getSite(e, 1)
 	if s.Status != "UP" {
@@ -213,7 +216,7 @@ func TestHandleStatusChange_UpToDown_ExceedsRetries(t *testing.T) {
 	site := models.Site{ID: 1, Name: "test", Status: "UP", MaxRetries: 2, FailureCount: 2, AlertID: 1}
 	injectSite(e, site)
 
-	e.handleStatusChange(site, "DOWN", 500, 0)
+	e.handleStatusChange(site, "DOWN", 500, 0, "test error")
 
 	s, _ := getSite(e, 1)
 	if s.Status != "DOWN" {
@@ -236,7 +239,7 @@ func TestHandleStatusChange_UpToDown_ZeroRetries(t *testing.T) {
 	site := models.Site{ID: 1, Name: "test", Status: "UP", MaxRetries: 0, FailureCount: 0, AlertID: 1}
 	injectSite(e, site)
 
-	e.handleStatusChange(site, "DOWN", 0, 0)
+	e.handleStatusChange(site, "DOWN", 0, 0, "test error")
 
 	s, _ := getSite(e, 1)
 	if s.Status != "DOWN" {
@@ -255,7 +258,7 @@ func TestHandleStatusChange_DownToUp_Recovery(t *testing.T) {
 	site := models.Site{ID: 1, Name: "test", Status: "DOWN", FailureCount: 4, AlertID: 1}
 	injectSite(e, site)
 
-	e.handleStatusChange(site, "UP", 200, 5*time.Millisecond)
+	e.handleStatusChange(site, "UP", 200, 5*time.Millisecond, "")
 
 	s, _ := getSite(e, 1)
 	if s.Status != "UP" {
@@ -276,7 +279,7 @@ func TestHandleStatusChange_DownStaysDown(t *testing.T) {
 	site := models.Site{ID: 1, Name: "test", Status: "DOWN", MaxRetries: 2, FailureCount: 3}
 	injectSite(e, site)
 
-	e.handleStatusChange(site, "DOWN", 0, 0)
+	e.handleStatusChange(site, "DOWN", 0, 0, "test error")
 
 	s, _ := getSite(e, 1)
 	if s.Status != "DOWN" {
@@ -295,7 +298,7 @@ func TestHandleStatusChange_SSLExpired(t *testing.T) {
 	site := models.Site{ID: 1, Name: "test", Status: "UP", MaxRetries: 0, AlertID: 1}
 	injectSite(e, site)
 
-	e.handleStatusChange(site, "SSL EXP", 0, 0)
+	e.handleStatusChange(site, "SSL EXP", 0, 0, "SSL certificate expired")
 
 	s, _ := getSite(e, 1)
 	if s.Status != "SSL EXP" {
@@ -315,7 +318,7 @@ func TestHandleStatusChange_AlertSuppressedMaintenance(t *testing.T) {
 	site := models.Site{ID: 1, Name: "test", Status: "UP", MaxRetries: 0, AlertID: 1}
 	injectSite(e, site)
 
-	e.handleStatusChange(site, "DOWN", 0, 0)
+	e.handleStatusChange(site, "DOWN", 0, 0, "test error")
 
 	s, _ := getSite(e, 1)
 	if s.Status != "DOWN" {
@@ -346,7 +349,7 @@ func TestHandleStatusChange_RecoverySuppressedMaintenance(t *testing.T) {
 	site := models.Site{ID: 1, Name: "test", Status: "DOWN", AlertID: 1}
 	injectSite(e, site)
 
-	e.handleStatusChange(site, "UP", 200, 0)
+	e.handleStatusChange(site, "UP", 200, 0, "")
 
 	s, _ := getSite(e, 1)
 	if s.Status != "UP" {
@@ -370,7 +373,7 @@ func TestHandleStatusChange_SSLWarning(t *testing.T) {
 	}
 	injectSite(e, site)
 
-	e.handleStatusChange(site, "UP", 200, 0)
+	e.handleStatusChange(site, "UP", 200, 0, "")
 
 	s, _ := getSite(e, 1)
 	if !s.SentSSLWarning {
@@ -393,7 +396,7 @@ func TestHandleStatusChange_SSLWarningNotRepeated(t *testing.T) {
 	}
 	injectSite(e, site)
 
-	e.handleStatusChange(site, "UP", 200, 0)
+	e.handleStatusChange(site, "UP", 200, 0, "")
 
 	waitAsync()
 	if len(ms.getAlertCallsSnapshot()) != 0 {
@@ -412,7 +415,7 @@ func TestHandleStatusChange_SSLWarningReset(t *testing.T) {
 	}
 	injectSite(e, site)
 
-	e.handleStatusChange(site, "UP", 200, 0)
+	e.handleStatusChange(site, "UP", 200, 0, "")
 
 	s, _ := getSite(e, 1)
 	if s.SentSSLWarning {
@@ -433,7 +436,7 @@ func TestHandleStatusChange_SSLWarningSuppressedMaint(t *testing.T) {
 	}
 	injectSite(e, site)
 
-	e.handleStatusChange(site, "UP", 200, 0)
+	e.handleStatusChange(site, "UP", 200, 0, "")
 
 	s, _ := getSite(e, 1)
 	if !s.SentSSLWarning {
@@ -452,7 +455,7 @@ func TestHandleStatusChange_InactiveEngine(t *testing.T) {
 	injectSite(e, site)
 	e.SetActive(false)
 
-	e.handleStatusChange(site, "DOWN", 0, 0)
+	e.handleStatusChange(site, "DOWN", 0, 0, "test error")
 
 	s, _ := getSite(e, 1)
 	if s.Status != "UP" {
@@ -991,7 +994,7 @@ func TestConcurrent_HandleStatusChangeAndGetState(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			e.handleStatusChange(site, "DOWN", 500, 0)
+			e.handleStatusChange(site, "DOWN", 500, 0, "test error")
 		}()
 		go func() {
 			defer wg.Done()

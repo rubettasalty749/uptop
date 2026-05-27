@@ -309,6 +309,29 @@ func fmtStatus(status string, paused bool, inMaint bool) string {
 	}
 }
 
+func fmtDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		h := int(d.Hours())
+		m := int(d.Minutes()) % 60
+		if m > 0 {
+			return fmt.Sprintf("%dh %dm", h, m)
+		}
+		return fmt.Sprintf("%dh", h)
+	}
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	if hours > 0 {
+		return fmt.Sprintf("%dd %dh", days, hours)
+	}
+	return fmt.Sprintf("%dd", days)
+}
+
 func (m Model) dynamicWidths() (nameW, sparkW int) {
 	fixed := 6 + 10 + 10 + 8 + 8 + 7 + 9 // #, TYPE, STATUS, LATENCY, UPTIME, SSL, RETRY
 	overhead := 30                       // cell padding + borders
@@ -387,6 +410,14 @@ func (m Model) viewSitesTab() string {
 					name = prefix + " " + limitStr(name, nameW-2)
 				} else {
 					name = limitStr(name, nameW)
+				}
+
+				if (site.Status == "DOWN" || site.Status == "SSL EXP") && site.LastError != "" {
+					nameLen := len([]rune(name))
+					errSpace := nameW - nameLen - 1
+					if errSpace > 10 {
+						name = name + " " + subtleStyle.Render(limitStr(site.LastError, errSpace))
+					}
 				}
 
 				hist, _ := m.engine.GetHistory(site.ID)
@@ -732,6 +763,25 @@ func (m Model) viewDetailPanel() string {
 	}
 
 	row("Status", fmtStatus(site.Status, site.Paused, m.isMonitorInMaintenance(site.ID)))
+
+	if (site.Status == "DOWN" || site.Status == "SSL EXP") && site.LastError != "" {
+		row("Error", dangerStyle.Render(limitStr(site.LastError, 60)))
+	}
+
+	if site.Type == "http" && site.StatusCode > 0 {
+		row("HTTP Code", strconv.Itoa(site.StatusCode))
+	}
+
+	if !site.StatusChangedAt.IsZero() {
+		dur := time.Since(site.StatusChangedAt)
+		row("State Since", site.StatusChangedAt.Format("2006-01-02 15:04:05")+" ("+fmtDuration(dur)+")")
+	}
+
+	if !site.LastSuccessAt.IsZero() {
+		ago := time.Since(site.LastSuccessAt)
+		row("Last Success", site.LastSuccessAt.Format("15:04:05")+" ("+fmtDuration(ago)+" ago)")
+	}
+
 	if m.isMonitorInMaintenance(site.ID) {
 		for _, mw := range m.maintenanceWindows {
 			if mw.Type == "maintenance" && (mw.MonitorID == 0 || mw.MonitorID == site.ID || mw.MonitorID == site.ParentID) {
@@ -787,7 +837,30 @@ func (m Model) viewDetailPanel() string {
 			}
 			latency := time.Duration(result.LatencyNs).Milliseconds()
 			ago := time.Since(result.CheckedAt).Truncate(time.Second)
-			fmt.Fprintf(&b, "  %-14s %s  %dms  %s ago\n", nodeID, status, latency, ago)
+			line := fmt.Sprintf("  %-14s %s  %dms  %s ago", nodeID, status, latency, ago)
+			if !result.IsUp && result.ErrorReason != "" {
+				line += "  " + dangerStyle.Render(limitStr(result.ErrorReason, 30))
+			}
+			b.WriteString(line + "\n")
+		}
+	}
+
+	stateChanges := m.engine.GetStateChanges(site.ID, 5)
+	if len(stateChanges) > 0 {
+		b.WriteString("\n" + subtleStyle.Render("  STATE CHANGES") + "\n")
+		for _, sc := range stateChanges {
+			ago := fmtDuration(time.Since(sc.ChangedAt))
+			arrow := subtleStyle.Render(sc.FromStatus) + " → "
+			if sc.ToStatus == "UP" {
+				arrow += specialStyle.Render(sc.ToStatus)
+			} else {
+				arrow += dangerStyle.Render(sc.ToStatus)
+			}
+			line := fmt.Sprintf("  %s  %s", arrow, subtleStyle.Render(ago+" ago"))
+			if sc.ErrorReason != "" && sc.ToStatus != "UP" {
+				line += "  " + dangerStyle.Render(limitStr(sc.ErrorReason, 40))
+			}
+			b.WriteString(line + "\n")
 		}
 	}
 

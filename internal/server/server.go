@@ -403,9 +403,10 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 		var req struct {
 			NodeID  string `json:"node_id"`
 			Results []struct {
-				SiteID    int   `json:"site_id"`
-				LatencyNs int64 `json:"latency_ns"`
-				IsUp      bool  `json:"is_up"`
+				SiteID      int    `json:"site_id"`
+				LatencyNs   int64  `json:"latency_ns"`
+				IsUp        bool   `json:"is_up"`
+				ErrorReason string `json:"error_reason"`
 			} `json:"results"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -420,7 +421,7 @@ func Start(cfg ServerConfig, s store.Store, eng *monitor.Engine) *http.Server {
 			if err := s.SaveCheckFromNode(result.SiteID, req.NodeID, result.LatencyNs, result.IsUp); err != nil {
 				log.Printf("Failed to save probe result: %v", err)
 			}
-			eng.IngestProbeResult(req.NodeID, result.SiteID, result.LatencyNs, result.IsUp)
+			eng.IngestProbeResult(req.NodeID, result.SiteID, result.LatencyNs, result.IsUp, result.ErrorReason)
 		}
 		if err := s.UpdateNodeLastSeen(req.NodeID); err != nil {
 			log.Printf("Failed to update node last seen: %v", err)
