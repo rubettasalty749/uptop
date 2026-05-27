@@ -67,6 +67,7 @@ var statusTpl = template.Must(template.New("status").Parse(`
 		.UP { background: #9ece6a; color: #1a1b26; }
 		.DOWN { background: #f7768e; color: #1a1b26; }
 		.PENDING { background: #e0af68; color: #1a1b26; }
+		.LATE { background: #e0af68; color: #1a1b26; }
 		.SSL-EXP { background: #e0af68; color: #1a1b26; }
 		.PAUSED { background: #565f89; color: #c0caf5; }
 		.MAINT { background: #bb9af7; color: #1a1b26; }
