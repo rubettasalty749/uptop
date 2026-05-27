@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -9,7 +10,9 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -348,6 +351,8 @@ func runServe(args []string) {
 		seedDemoData(s)
 	}
 
+	seedKeysFromEnv(s)
+
 	if *importKuma != "" {
 		kb, err := importer.LoadKumaFile(*importKuma)
 		if err != nil {
@@ -562,4 +567,79 @@ func (c *keyCache) IsAllowed(incomingKey ssh.PublicKey) bool {
 		}
 	}
 	return false
+}
+
+func seedKeysFromEnv(s store.Store) {
+	var keys []string
+
+	if v := os.Getenv("UPTOP_ADMIN_KEY"); v != "" {
+		keys = append(keys, strings.TrimSpace(v))
+	}
+
+	if path := os.Getenv("UPTOP_KEYS"); path != "" {
+		f, err := os.Open(filepath.Clean(path))
+		if err == nil {
+			scanner := bufio.NewScanner(f)
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				if line == "" || strings.HasPrefix(line, "#") {
+					continue
+				}
+				keys = append(keys, line)
+			}
+			_ = f.Close()
+		}
+	}
+
+	if len(keys) == 0 {
+		return
+	}
+
+	existing, err := s.GetAllUsers()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not check existing users: %v\n", err)
+		return
+	}
+
+	existingKeys := make(map[string]bool)
+	for _, u := range existing {
+		existingKeys[u.PublicKey] = true
+	}
+
+	added := 0
+	for i, key := range keys {
+		if existingKeys[key] {
+			continue
+		}
+
+		username := usernameFromKey(key, i, len(existing)+added)
+		if err := s.AddUser(username, key, "admin"); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to seed user %q: %v\n", username, err)
+			continue
+		}
+		fmt.Printf("Seeded admin user %q from %s\n", username, seedSource(i, len(keys), os.Getenv("UPTOP_ADMIN_KEY") != ""))
+		added++
+	}
+}
+
+func usernameFromKey(key string, index, totalExisting int) string {
+	parts := strings.Fields(key)
+	if len(parts) >= 3 {
+		comment := parts[2]
+		if at := strings.Index(comment, "@"); at > 0 {
+			return comment[:at]
+		}
+		return comment
+	}
+	if index == 0 && totalExisting == 0 {
+		return "admin"
+	}
+	return fmt.Sprintf("user-%d", totalExisting+1)
+}
+
+func seedSource(index, total int, hasEnvKey bool) string {
+	if hasEnvKey && index == 0 {
+		return "UPTOP_ADMIN_KEY"
+	}
+	return "UPTOP_KEYS"
 }

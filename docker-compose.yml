@@ -14,5 +14,7 @@ services:
       - UPTOP_HTTP_PORT=8080
       - UPTOP_STATUS_ENABLED=true
       - UPTOP_STATUS_TITLE=System Status
+      # SSH access: add your public key via env var or authorized_keys file
+      # - UPTOP_ADMIN_KEY=ssh-ed25519 AAAA... you@host
     volumes:
       - ./data:/data
