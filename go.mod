@@ -1,6 +1,6 @@
 module gitea.lerkolabs.com/lerko/uptop
 
-go 1.24.4
+go 1.26.3
 
 require (
 	github.com/charmbracelet/bubbles v0.21.1-0.20250623103423-23b8fd6302d7
@@ -16,6 +16,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.33
 	github.com/miekg/dns v1.1.72
 	github.com/prometheus-community/pro-bing v0.8.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -57,5 +58,4 @@ require (
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/tools v0.40.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
