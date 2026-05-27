@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
-	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
 	"net"
 	"net/http"
 	"sync"
 	"testing"
 	"time"
+
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
 )
 
 // --- Mock Store ---
@@ -69,13 +70,15 @@ func (m *mockStore) LoadLogs(int) ([]string, error)           { return nil, nil 
 func (m *mockStore) GetAllMaintenanceWindows(int) ([]models.MaintenanceWindow, error) {
 	return nil, nil
 }
-func (m *mockStore) AddMaintenanceWindow(models.MaintenanceWindow) error { return nil }
-func (m *mockStore) EndMaintenanceWindow(int) error                      { return nil }
-func (m *mockStore) DeleteMaintenanceWindow(int) error                   { return nil }
-func (m *mockStore) IsMonitorInMaintenance(int) (bool, error)            { return false, nil }
-func (m *mockStore) GetPreference(string) (string, error)                { return "", nil }
-func (m *mockStore) SetPreference(string, string) error                  { return nil }
-func (m *mockStore) Close() error                                        { return nil }
+func (m *mockStore) AddMaintenanceWindow(models.MaintenanceWindow) error    { return nil }
+func (m *mockStore) EndMaintenanceWindow(int) error                         { return nil }
+func (m *mockStore) DeleteMaintenanceWindow(int) error                      { return nil }
+func (m *mockStore) IsMonitorInMaintenance(int) (bool, error)               { return false, nil }
+func (m *mockStore) GetPreference(string) (string, error)                   { return "", nil }
+func (m *mockStore) SetPreference(string, string) error                     { return nil }
+func (m *mockStore) SaveStateChange(int, string, string, string) error      { return nil }
+func (m *mockStore) GetStateChanges(int, int) ([]models.StateChange, error) { return nil, nil }
+func (m *mockStore) Close() error                                           { return nil }
 
 func (m *mockStore) ExportData() (models.Backup, error) {
 	return models.Backup{

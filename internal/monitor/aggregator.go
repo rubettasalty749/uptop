@@ -11,10 +11,11 @@ const (
 )
 
 type NodeResult struct {
-	NodeID    string
-	IsUp      bool
-	LatencyNs int64
-	CheckedAt time.Time
+	NodeID      string
+	IsUp        bool
+	LatencyNs   int64
+	CheckedAt   time.Time
+	ErrorReason string
 }
 
 func AggregateStatus(results []NodeResult, strategy AggregationStrategy) (isUp bool, avgLatencyNs int64) {
