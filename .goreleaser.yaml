@@ -1,0 +1,42 @@
+version: 2
+
+gitea_urls:
+  api: https://gitea.lerkolabs.com/api/v1
+  download: https://gitea.lerkolabs.com
+
+release:
+  gitea:
+    owner: lerko
+    name: uptop
+
+builds:
+  - main: ./cmd/uptop/main.go
+    binary: uptop
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .Commit }}
+      - -X main.date={{ .Date }}
+    flags:
+      - -trimpath
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^style:"
