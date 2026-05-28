@@ -537,7 +537,7 @@ func TestCheckPush_DeadlineMissed(t *testing.T) {
 	site := models.Site{
 		ID: 1, Name: "push", Type: "push", Status: "UP",
 		Interval: 10, MaxRetries: 0,
-		LastCheck: time.Now().Add(-20 * time.Second),
+		LastCheck: time.Now().Add(-120 * time.Second),
 	}
 	injectSite(e, site)
 
@@ -546,6 +546,24 @@ func TestCheckPush_DeadlineMissed(t *testing.T) {
 	s, _ := getSite(e, 1)
 	if s.Status != "DOWN" {
 		t.Errorf("expected DOWN after missed deadline, got %s", s.Status)
+	}
+}
+
+func TestCheckPush_OverdueBecomesLate(t *testing.T) {
+	ms := newMockStore()
+	e := newTestEngine(ms)
+	site := models.Site{
+		ID: 1, Name: "push", Type: "push", Status: "UP",
+		Interval:  300,
+		LastCheck: time.Now().Add(-310 * time.Second),
+	}
+	injectSite(e, site)
+
+	e.checkPush(site)
+
+	s, _ := getSite(e, 1)
+	if s.Status != "LATE" {
+		t.Errorf("expected LATE when overdue but within grace, got %s", s.Status)
 	}
 }
 
@@ -566,20 +584,20 @@ func TestCheckPush_WithinDeadline(t *testing.T) {
 	}
 }
 
-func TestCheckPush_PendingToUp(t *testing.T) {
+func TestCheckPush_PendingStaysPending(t *testing.T) {
 	ms := newMockStore()
 	e := newTestEngine(ms)
 	site := models.Site{
 		ID: 1, Name: "push", Type: "push", Status: "PENDING",
-		Interval: 60, LastCheck: time.Now(),
+		Interval: 60,
 	}
 	injectSite(e, site)
 
 	e.checkPush(site)
 
 	s, _ := getSite(e, 1)
-	if s.Status != "UP" {
-		t.Errorf("expected UP, got %s", s.Status)
+	if s.Status != "PENDING" {
+		t.Errorf("expected PENDING to stay until first heartbeat, got %s", s.Status)
 	}
 }
 

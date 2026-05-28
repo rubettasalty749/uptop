@@ -811,13 +811,20 @@ func (m Model) viewDashboard() string {
 	allSites := m.engine.GetAllSites()
 	totalMonitors := 0
 	downCount := 0
+	lateCount := 0
 	for _, s := range allSites {
 		if s.Type == "group" {
 			continue
 		}
 		totalMonitors++
-		if !s.Paused && !m.isMonitorInMaintenance(s.ID) && (s.Status == "DOWN" || s.Status == "SSL EXP") {
+		if s.Paused || m.isMonitorInMaintenance(s.ID) {
+			continue
+		}
+		switch s.Status {
+		case "DOWN", "SSL EXP":
 			downCount++
+		case "LATE":
+			lateCount++
 		}
 	}
 	offlineNodes := 0
@@ -830,6 +837,8 @@ func (m Model) viewDashboard() string {
 	var sitesLabel string
 	if downCount > 0 {
 		sitesLabel = fmt.Sprintf("Sites (%d↓)", downCount)
+	} else if lateCount > 0 {
+		sitesLabel = fmt.Sprintf("Sites (%d⚠)", lateCount)
 	} else if totalMonitors > 0 {
 		sitesLabel = fmt.Sprintf("Sites (%d)", totalMonitors)
 	} else {
@@ -895,14 +904,19 @@ func (m Model) viewDashboard() string {
 		}
 	}
 
-	upCount := totalMonitors - downCount
+	upCount := totalMonitors - downCount - lateCount
 	var upStr string
 	if downCount > 0 {
 		upStr = dangerStyle.Render(fmt.Sprintf("%d/%d UP", upCount, totalMonitors))
+	} else if lateCount > 0 {
+		upStr = warnStyle.Render(fmt.Sprintf("%d/%d UP", upCount, totalMonitors))
 	} else {
 		upStr = specialStyle.Render(fmt.Sprintf("%d/%d UP", upCount, totalMonitors))
 	}
 	statusParts := []string{upStr}
+	if lateCount > 0 {
+		statusParts = append(statusParts, warnStyle.Render(fmt.Sprintf("%d LATE", lateCount)))
+	}
 	if len(m.nodes) > 0 {
 		online := 0
 		for _, n := range m.nodes {
@@ -949,10 +963,12 @@ func siteOrder(s models.Site) int {
 	switch s.Status {
 	case "DOWN", "SSL EXP":
 		return 0
-	case "PENDING":
-		return 2
-	default:
+	case "LATE":
 		return 1
+	case "PENDING":
+		return 3
+	default:
+		return 2
 	}
 }
 

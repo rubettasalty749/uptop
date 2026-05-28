@@ -19,8 +19,8 @@ import (
 const (
 	maxLogEntries    = 100
 	pollInterval     = 5 * time.Second
-	pushGracePeriod  = 5 * time.Second
 	minCheckInterval = 5
+	minPushGrace     = 60 * time.Second
 )
 
 type Engine struct {
@@ -186,17 +186,34 @@ func (e *Engine) RecordHeartbeat(token string) bool {
 		return false
 	}
 
+	prevStatus := site.Status
 	site.LastCheck = time.Now()
-	wasDown := site.Status == "DOWN"
 	site.Status = "UP"
 	site.FailureCount = 0
 	site.Latency = 0
+	site.LastError = ""
+	site.LastSuccessAt = time.Now()
+
+	if prevStatus != "UP" {
+		site.StatusChangedAt = time.Now()
+	}
+
 	e.liveState[targetID] = site
 
-	if wasDown {
+	switch prevStatus {
+	case "PENDING":
+		e.AddLog(fmt.Sprintf("Push Monitor '%s' received first heartbeat", site.Name))
+	case "LATE":
+		e.AddLog(fmt.Sprintf("Push Monitor '%s' heartbeat arrived (was late)", site.Name))
+	case "DOWN":
 		e.AddLog(fmt.Sprintf("Push Monitor '%s' recovered", site.Name))
-		e.triggerAlert(site.AlertID, "✅ RECOVERY", fmt.Sprintf("Push Monitor '%s' is receiving heartbeats.", site.Name))
+		go e.triggerAlert(site.AlertID, "✅ RECOVERY", fmt.Sprintf("Push Monitor '%s' is receiving heartbeats.", site.Name))
 	}
+
+	if prevStatus != "UP" && prevStatus != "PENDING" {
+		go func() { _ = e.db.SaveStateChange(targetID, prevStatus, "UP", "") }()
+	}
+
 	return true
 }
 
@@ -241,9 +258,6 @@ func (e *Engine) Start(ctx context.Context) {
 				if !exists {
 					e.mu.Lock()
 					s.Status = "PENDING"
-					if s.Type == "push" {
-						s.LastCheck = time.Now()
-					}
 					if h, ok := e.GetHistory(s.ID); ok && len(h.Statuses) > 0 {
 						if h.Statuses[len(h.Statuses)-1] {
 							s.Status = "UP"
@@ -401,11 +415,28 @@ func (e *Engine) checkByID(id int) {
 }
 
 func (e *Engine) checkPush(site models.Site) {
-	deadline := site.LastCheck.Add(time.Duration(site.Interval) * time.Second).Add(pushGracePeriod)
-	if time.Now().After(deadline) {
-		e.handleStatusChange(site, "DOWN", 0, 0, "heartbeat missed")
-	} else if site.Status != "UP" {
-		e.handleStatusChange(site, "UP", 200, 0, "")
+	if site.Status == "PENDING" {
+		return
+	}
+
+	interval := time.Duration(site.Interval) * time.Second
+	grace := interval / 2
+	if grace < minPushGrace {
+		grace = minPushGrace
+	}
+
+	overdue := site.LastCheck.Add(interval)
+	graceEnd := overdue.Add(grace)
+	now := time.Now()
+
+	if now.After(graceEnd) {
+		if site.Status != "DOWN" {
+			e.handleStatusChange(site, "DOWN", 0, 0, "heartbeat missed")
+		}
+	} else if now.After(overdue) {
+		if site.Status != "LATE" {
+			e.handleStatusChange(site, "LATE", 0, 0, "heartbeat overdue")
+		}
 	}
 }
 

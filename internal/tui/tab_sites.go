@@ -302,6 +302,8 @@ func fmtStatus(status string, paused bool, inMaint bool) string {
 	switch status {
 	case "DOWN", "SSL EXP":
 		return dangerStyle.Render(status)
+	case "LATE":
+		return warnStyle.Render(status)
 	case "PENDING":
 		return subtleStyle.Render(status)
 	default:
@@ -412,7 +414,7 @@ func (m Model) viewSitesTab() string {
 					name = limitStr(name, nameW)
 				}
 
-				if (site.Status == "DOWN" || site.Status == "SSL EXP") && site.LastError != "" {
+				if (site.Status == "DOWN" || site.Status == "SSL EXP" || site.Status == "LATE") && site.LastError != "" {
 					nameLen := len([]rune(name))
 					errSpace := nameW - nameLen - 1
 					if errSpace > 10 {
@@ -764,7 +766,7 @@ func (m Model) viewDetailPanel() string {
 
 	row("Status", fmtStatus(site.Status, site.Paused, m.isMonitorInMaintenance(site.ID)))
 
-	if (site.Status == "DOWN" || site.Status == "SSL EXP") && site.LastError != "" {
+	if (site.Status == "DOWN" || site.Status == "SSL EXP" || site.Status == "LATE") && site.LastError != "" {
 		row("Error", dangerStyle.Render(limitStr(site.LastError, 60)))
 	}
 
