@@ -2,9 +2,10 @@ package tui
 
 import (
 	"fmt"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 	"strconv"
 	"time"
+
+	"gitea.lerkolabs.com/lerko/uptop/internal/models"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
@@ -40,19 +41,19 @@ func fmtMaintType(t string) string {
 	return maintStyle.Render("maintenance")
 }
 
-func fmtMaintMonitor(monitorID int, sites []models.Site) string {
+func fmtMaintMonitorW(monitorID int, sites []models.Site, maxW int) string {
 	if monitorID == 0 {
 		return "All"
 	}
 	for _, s := range sites {
 		if s.ID == monitorID {
-			return limitStr(s.Name, 18)
+			return limitStr(s.Name, maxW)
 		}
 	}
 	return fmt.Sprintf("#%d", monitorID)
 }
 
-func fmtMaintTime(t time.Time) string {
+func fmtMaintTime(t time.Time, colW int) string {
 	if t.IsZero() {
 		return subtleStyle.Render("—")
 	}
@@ -60,7 +61,10 @@ func fmtMaintTime(t time.Time) string {
 	if t.Year() == now.Year() && t.YearDay() == now.YearDay() {
 		return t.Format("15:04")
 	}
-	return t.Format("15:04 Jan 02")
+	if colW >= 14 {
+		return t.Format("15:04 Jan 02")
+	}
+	return t.Format("Jan 02")
 }
 
 func (m Model) isMonitorInMaintenance(monitorID int) bool {
@@ -92,8 +96,21 @@ func (m Model) viewMaintTab() string {
 		return "\n  No maintenance windows or incidents. Press [n] to create one."
 	}
 
+	var headers []string
+	var widths []int
+	if m.isWide() {
+		headers = []string{"#", "TITLE", "TYPE", "MONITORS", "STATUS", "STARTED", "ENDS"}
+		widths = []int{4, 24, 14, 22, 12, 16, 16}
+	} else {
+		headers = []string{"#", "TITLE", "TYPE", "MON", "ST", "START", "ENDS"}
+		widths = []int{4, 14, 13, 14, 11, 14, 14}
+	}
+	titleW := widths[1]
+	monW := widths[3]
+	timeW := widths[5]
+
 	return m.renderTable(
-		[]string{"#", "TITLE", "TYPE", "MONITORS", "STATUS", "STARTED", "ENDS"},
+		headers,
 		len(m.maintenanceWindows),
 		func(start, end int) [][]string {
 			var rows [][]string
@@ -102,17 +119,17 @@ func (m Model) viewMaintTab() string {
 				mw := m.maintenanceWindows[i]
 				rows = append(rows, []string{
 					strconv.Itoa(i + 1),
-					m.zones.Mark(fmt.Sprintf("maint-%d", i), limitStr(mw.Title, 24)),
+					m.zones.Mark(fmt.Sprintf("maint-%d", i), limitStr(mw.Title, titleW-2)),
 					fmtMaintType(mw.Type),
-					fmtMaintMonitor(mw.MonitorID, allSites),
+					fmtMaintMonitorW(mw.MonitorID, allSites, monW-2),
 					fmtMaintStatus(mw),
-					fmtMaintTime(mw.StartTime),
-					fmtMaintTime(mw.EndTime),
+					fmtMaintTime(mw.StartTime, timeW),
+					fmtMaintTime(mw.EndTime, timeW),
 				})
 			}
 			return rows
 		},
-		[]int{6, 0, 14, 20, 12, 16, 16},
+		widths,
 		nil,
 	)
 }

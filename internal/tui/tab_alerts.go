@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
@@ -147,8 +148,20 @@ func (m Model) viewAlertsTab() string {
 		return "\n  No alert channels configured. Press [n] to add one."
 	}
 
+	var headers []string
+	var widths []int
+	if m.isWide() {
+		headers = []string{"#", "", "NAME", "TYPE", "CONFIG", "LAST SENT"}
+		widths = []int{4, 3, 18, 12, 40, 12}
+	} else {
+		headers = []string{"#", "", "NAME", "TYPE", "CONFIG", "SENT"}
+		widths = []int{4, 3, 14, 10, 24, 8}
+	}
+	nameW := widths[2]
+	cfgW := widths[4]
+
 	return m.renderTable(
-		[]string{"#", "", "NAME", "TYPE", "CONFIG", "LAST SENT"},
+		headers,
 		len(m.alerts),
 		func(start, end int) [][]string {
 			var rows [][]string
@@ -158,19 +171,65 @@ func (m Model) viewAlertsTab() string {
 				rows = append(rows, []string{
 					fmt.Sprintf("%d", i+1),
 					fmtAlertHealth(h),
-					m.zones.Mark(fmt.Sprintf("alert-%d", i), limitStr(a.Name, 15)),
+					m.zones.Mark(fmt.Sprintf("alert-%d", i), limitStr(a.Name, nameW-2)),
 					fmtAlertType(a.Type),
-					fmtAlertConfig(struct {
+					limitStr(fmtAlertConfig(struct {
 						Type     string
 						Settings map[string]string
-					}{a.Type, a.Settings}),
+					}{a.Type, a.Settings}), cfgW-2),
 					fmtAlertLastSent(h),
 				})
 			}
 			return rows
 		},
-		nil, nil,
+		widths, nil,
 	)
+}
+
+func (m Model) viewAlertDetailPanel() string {
+	if m.cursor >= len(m.alerts) {
+		return ""
+	}
+	a := m.alerts[m.cursor]
+	h := m.engine.GetAlertHealth(a.ID)
+
+	var b strings.Builder
+
+	b.WriteString(subtleStyle.Render("  Alerts > ") + titleStyle.Render(a.Name) + "\n\n")
+
+	row := func(label, value string) {
+		fmt.Fprintf(&b, "  %-16s %s\n", subtleStyle.Render(label), value)
+	}
+
+	row("Type", fmtAlertType(a.Type))
+
+	if h.LastSendAt.IsZero() {
+		row("Health", subtleStyle.Render("never sent"))
+	} else if h.LastSendOK {
+		row("Health", specialStyle.Render("OK"))
+	} else {
+		row("Health", dangerStyle.Render("FAILED"))
+	}
+
+	if !h.LastSendAt.IsZero() {
+		row("Last Sent", h.LastSendAt.Format("2006-01-02 15:04:05")+" ("+fmtAlertLastSent(h)+")")
+	}
+	if h.SendCount > 0 {
+		row("Sends", fmt.Sprintf("%d sent, %d failed", h.SendCount, h.FailCount))
+	}
+	if h.LastError != "" {
+		row("Last Error", dangerStyle.Render(limitStr(h.LastError, 60)))
+	}
+
+	b.WriteString("\n" + subtleStyle.Render("  CONFIGURATION") + "\n")
+	for k, v := range a.Settings {
+		row(k, v)
+	}
+
+	b.WriteString("\n\n")
+	b.WriteString(subtleStyle.Render("  [i/Esc] Back  [e] Edit  [t] Test  [q] Quit"))
+
+	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
 }
 
 func (m *Model) initAlertHuhForm() tea.Cmd {

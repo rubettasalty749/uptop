@@ -334,28 +334,71 @@ func fmtDuration(d time.Duration) string {
 	return fmt.Sprintf("%dd", days)
 }
 
-func (m Model) dynamicWidths() (nameW, sparkW int) {
-	fixed := 6 + 10 + 10 + 8 + 8 + 7 + 9 // #, TYPE, STATUS, LATENCY, UPTIME, SSL, RETRY
-	overhead := 30                       // cell padding + borders
-	avail := m.termWidth - chromePadH - 2 - fixed - overhead
-	if avail < 30 {
-		avail = 30
+type tableLayout struct {
+	nameW, sparkW int
+	headers       []string
+	colWidths     []int
+}
+
+func (m Model) computeLayout() tableLayout {
+	wide := m.isWide()
+
+	var fixed int
+	var headers []string
+	var widths []int
+
+	if wide {
+		//              #   NAME TYPE   STATUS LATENCY UPTIME HISTORY SSL RETRIES
+		headers = []string{"#", "NAME", "TYPE", "STATUS", "LATENCY", "UPTIME", "HISTORY", "SSL", "RETRIES"}
+		widths = []int{4, 0, 10, 10, 10, 8, 0, 7, 9}
+		fixed = 4 + 10 + 10 + 10 + 8 + 7 + 9
+	} else {
+		//              #   NAME TYPE   STATUS LAT   UP%   HISTORY SSL RT
+		headers = []string{"#", "NAME", "TYPE", "STATUS", "LAT", "UP%", "HISTORY", "SSL", "RT"}
+		widths = []int{4, 0, 8, 8, 7, 8, 0, 5, 5}
+		fixed = 4 + 8 + 8 + 7 + 8 + 5 + 5
 	}
-	nameW = avail / 2
-	sparkW = avail - nameW - 2 // -2 for spark column padding
+
+	numCols := len(headers)
+	borderOverhead := 2 + (numCols - 1)
+	avail := m.termWidth - chromePadH - 2 - borderOverhead - fixed
+	if avail < 20 {
+		avail = 20
+	}
+
+	maxName := 0
+	for _, s := range m.sites {
+		if n := len([]rune(s.Name)); n > maxName {
+			maxName = n
+		}
+	}
+	maxName += 4
+
+	nameW := avail / 2
+	if nameW > maxName {
+		nameW = maxName
+	}
 	if nameW < 13 {
 		nameW = 13
 	}
 	if nameW > 40 {
 		nameW = 40
 	}
+
+	sparkW := avail - nameW
 	if sparkW < 10 {
 		sparkW = 10
 	}
-	if sparkW > 60 {
-		sparkW = 60
+
+	widths[1] = nameW
+	widths[6] = sparkW
+
+	return tableLayout{
+		nameW:     nameW,
+		sparkW:    sparkW,
+		headers:   headers,
+		colWidths: widths,
 	}
-	return
 }
 
 func (m Model) viewSitesTab() string {
@@ -373,12 +416,16 @@ func (m Model) viewSitesTab() string {
 		return "\n" + welcome
 	}
 
-	nameW, sparkWidth := m.dynamicWidths()
-	colWidths := []int{6, 0, 10, 10, 8, 8, sparkWidth + 2, 7, 9}
+	layout := m.computeLayout()
+	nameW := layout.nameW
+	sparkWidth := layout.sparkW - 2
+	if sparkWidth < 8 {
+		sparkWidth = 8
+	}
 
 	var groupRows map[int]bool
 	return m.renderTable(
-		[]string{"#", "NAME", "TYPE", "STATUS", "LATENCY", "UPTIME", "HISTORY", "SSL", "RETRY"},
+		layout.headers,
 		len(m.sites),
 		func(start, end int) [][]string {
 			groupRows = make(map[int]bool)
@@ -391,7 +438,7 @@ func (m Model) viewSitesTab() string {
 					icon := typeIcon("group", m.collapsed[site.ID])
 					rows = append(rows, []string{
 						strconv.Itoa(i + 1),
-						m.zones.Mark(fmt.Sprintf("site-%d", i), icon+" "+limitStr(site.Name, nameW-2)),
+						m.zones.Mark(fmt.Sprintf("site-%d", i), icon+" "+limitStr(site.Name, nameW-4)),
 						"group",
 						fmtStatus(site.Status, site.Paused, m.isMonitorInMaintenance(site.ID)),
 						subtleStyle.Render("—"),
@@ -409,14 +456,14 @@ func (m Model) viewSitesTab() string {
 					if i+1 >= len(m.sites) || m.sites[i+1].ParentID != site.ParentID {
 						prefix = "└"
 					}
-					name = prefix + " " + limitStr(name, nameW-2)
+					name = prefix + " " + limitStr(name, nameW-4)
 				} else {
-					name = limitStr(name, nameW)
+					name = limitStr(name, nameW-2)
 				}
 
 				if (site.Status == "DOWN" || site.Status == "SSL EXP" || site.Status == "LATE") && site.LastError != "" {
 					nameLen := len([]rune(name))
-					errSpace := nameW - nameLen - 1
+					errSpace := nameW - nameLen - 3
 					if errSpace > 10 {
 						name = name + " " + subtleStyle.Render(limitStr(site.LastError, errSpace))
 					}
@@ -444,7 +491,7 @@ func (m Model) viewSitesTab() string {
 			}
 			return rows
 		},
-		colWidths,
+		layout.colWidths,
 		func(row, col int) *lipgloss.Style {
 			if groupRows[row] {
 				s := siteGroupStyle
@@ -764,6 +811,10 @@ func (m Model) viewDetailPanel() string {
 		fmt.Fprintf(&b, "  %-16s %s\n", subtleStyle.Render(label), value)
 	}
 
+	section := func(label string) {
+		b.WriteString("\n" + subtleStyle.Render("  "+label) + "\n")
+	}
+
 	row("Status", fmtStatus(site.Status, site.Paused, m.isMonitorInMaintenance(site.ID)))
 
 	if (site.Status == "DOWN" || site.Status == "SSL EXP" || site.Status == "LATE") && site.LastError != "" {
@@ -792,6 +843,8 @@ func (m Model) viewDetailPanel() string {
 			}
 		}
 	}
+
+	section("ENDPOINT")
 	row("Type", site.Type)
 	if site.URL != "" {
 		row("URL", site.URL)
@@ -802,31 +855,45 @@ func (m Model) viewDetailPanel() string {
 	if site.Port > 0 {
 		row("Port", strconv.Itoa(site.Port))
 	}
+
+	section("TIMING")
 	row("Interval", fmt.Sprintf("%ds", site.Interval))
-	row("Timeout", fmt.Sprintf("%ds", site.Timeout))
+	if site.Timeout > 0 {
+		row("Timeout", fmt.Sprintf("%ds", site.Timeout))
+	}
 	row("Latency", fmtLatency(site.Latency))
 	row("Uptime", fmtUptime(hist.Statuses))
+	if !site.LastCheck.IsZero() {
+		row("Last Check", site.LastCheck.Format("15:04:05"))
+	}
 
 	if site.Type == "http" {
-		row("Method", site.Method)
-		row("Codes", site.AcceptedCodes)
+		section("HTTP")
+		if site.Method != "" && site.Method != "GET" {
+			row("Method", site.Method)
+		}
+		codes := site.AcceptedCodes
+		if codes == "" {
+			codes = "200-299"
+		}
+		row("Codes", codes)
 		row("SSL", fmtSSL(site))
 		if site.IgnoreTLS {
 			row("TLS Verify", dangerStyle.Render("disabled"))
 		}
 	}
 
-	if site.MaxRetries > 0 {
-		row("Retries", fmtRetries(site))
-	}
-	if site.Regions != "" {
-		row("Regions", site.Regions)
-	}
-	if site.Description != "" {
-		row("Description", site.Description)
-	}
-	if !site.LastCheck.IsZero() {
-		row("Last Check", site.LastCheck.Format("15:04:05"))
+	if site.MaxRetries > 0 || site.Regions != "" || site.Description != "" {
+		section("CONFIG")
+		if site.MaxRetries > 0 {
+			row("Retries", fmtRetries(site))
+		}
+		if site.Regions != "" {
+			row("Regions", site.Regions)
+		}
+		if site.Description != "" {
+			row("Description", site.Description)
+		}
 	}
 
 	probeResults := m.engine.GetProbeResults(site.ID)

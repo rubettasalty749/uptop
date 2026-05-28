@@ -15,6 +15,12 @@ var (
 
 type StyleOverride func(row, col int) *lipgloss.Style
 
+const wideBreakpoint = 120
+
+func (m Model) isWide() bool {
+	return m.termWidth >= wideBreakpoint
+}
+
 func (m Model) renderTable(headers []string, items int, buildRows func(start, end int) [][]string, colWidths []int, styleOverride StyleOverride) string {
 	if items == 0 {
 		return ""
@@ -28,7 +34,16 @@ func (m Model) renderTable(headers []string, items int, buildRows func(start, en
 	selectedVisual := m.cursor - m.tableOffset
 	rows := buildRows(m.tableOffset, end)
 
-	tableWidth := m.termWidth - chromePadH - 2
+	colTotal := 0
+	for _, w := range colWidths {
+		colTotal += w
+	}
+	borderOverhead := 2 + len(colWidths) - 1
+	tableWidth := colTotal + borderOverhead
+	maxWidth := m.termWidth - chromePadH - 2
+	if tableWidth > maxWidth {
+		tableWidth = maxWidth
+	}
 	if tableWidth < 40 {
 		tableWidth = 40
 	}
@@ -41,7 +56,11 @@ func (m Model) renderTable(headers []string, items int, buildRows func(start, en
 		Rows(rows...).
 		StyleFunc(func(row, col int) lipgloss.Style {
 			if row == table.HeaderRow {
-				return tableHeaderStyle
+				h := tableHeaderStyle
+				if col < len(colWidths) && colWidths[col] > 0 {
+					h = h.Width(colWidths[col]).MaxWidth(colWidths[col])
+				}
+				return h
 			}
 			isSelected := row == selectedVisual
 			if styleOverride != nil {
@@ -51,7 +70,7 @@ func (m Model) renderTable(headers []string, items int, buildRows func(start, en
 						style = tableSelectedStyle.Foreground(s.GetForeground())
 					}
 					if col < len(colWidths) && colWidths[col] > 0 {
-						style = style.Width(colWidths[col])
+						style = style.Width(colWidths[col]).MaxWidth(colWidths[col])
 					}
 					return style
 				}
@@ -64,7 +83,7 @@ func (m Model) renderTable(headers []string, items int, buildRows func(start, en
 				base = tableSelectedStyle
 			}
 			if col < len(colWidths) && colWidths[col] > 0 {
-				base = base.Width(colWidths[col])
+				base = base.Width(colWidths[col]).MaxWidth(colWidths[col])
 			}
 			return base
 		})

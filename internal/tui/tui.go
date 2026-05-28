@@ -68,6 +68,7 @@ const (
 	stateLogs
 	stateUsers
 	stateDetail
+	stateAlertDetail
 	stateFormSite
 	stateFormAlert
 	stateFormUser
@@ -384,6 +385,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			return m, nil
+		case stateAlertDetail:
+			switch msg.String() {
+			case "i", "esc":
+				m.state = stateDashboard
+			case "q":
+				return m, tea.Quit
+			}
+			return m, nil
 		case stateDashboard, stateLogs, stateUsers:
 			switch msg.String() {
 			case "q":
@@ -497,6 +506,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "i":
 				if m.currentTab == 0 && len(m.sites) > 0 {
 					m.state = stateDetail
+				} else if m.currentTab == 1 && len(m.alerts) > 0 {
+					m.state = stateAlertDetail
 				}
 			case "x":
 				if m.currentTab == 4 && len(m.maintenanceWindows) > 0 {
@@ -818,6 +829,8 @@ func (m Model) View() string {
 		return ""
 	case stateDetail:
 		return m.viewDetailPanel()
+	case stateAlertDetail:
+		return m.viewAlertDetailPanel()
 	default:
 		return m.zones.Scan(m.viewDashboard())
 	}
@@ -954,7 +967,7 @@ func (m Model) viewDashboard() string {
 		case 0:
 			keys = "[/]Filter [n]New [e]Edit [i]Info [d]Del [p]Pause [T]Theme [Tab]Switch [q]Quit"
 		case 1:
-			keys = "[n]New [e]Edit [d]Del [t]Test [T]Theme [Tab]Switch [q]Quit"
+			keys = "[n]New [e]Edit [i]Info [d]Del [t]Test [T]Theme [Tab]Switch [q]Quit"
 		case 2:
 			keys = "[f]Filter [T]Theme [Tab]Switch [q]Quit"
 		case 4:

@@ -32,8 +32,19 @@ func (m Model) viewUsersTab() string {
 		return "\n  No users configured. Press [n] to add one."
 	}
 
+	var headers []string
+	var widths []int
+	if m.isWide() {
+		headers = []string{"#", "USERNAME", "ROLE", "PUBLIC KEY"}
+		widths = []int{4, 18, 10, 50}
+	} else {
+		headers = []string{"#", "USER", "ROLE", "KEY"}
+		widths = []int{4, 14, 8, 30}
+	}
+	userW := widths[1]
+
 	return m.renderTable(
-		[]string{"#", "USERNAME", "ROLE", "PUBLIC KEY"},
+		headers,
 		len(m.users),
 		func(start, end int) [][]string {
 			var rows [][]string
@@ -41,14 +52,14 @@ func (m Model) viewUsersTab() string {
 				u := m.users[i]
 				rows = append(rows, []string{
 					fmt.Sprintf("%d", i+1),
-					m.zones.Mark(fmt.Sprintf("user-%d", i), limitStr(u.Username, 15)),
+					m.zones.Mark(fmt.Sprintf("user-%d", i), limitStr(u.Username, userW-2)),
 					fmtRole(u.Role),
 					fmtKey(u.PublicKey),
 				})
 			}
 			return rows
 		},
-		nil, nil,
+		widths, nil,
 	)
 }
 

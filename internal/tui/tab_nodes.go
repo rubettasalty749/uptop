@@ -10,16 +10,25 @@ func (m Model) viewNodesTab() string {
 		return "\n  No probe nodes connected."
 	}
 
-	colWidths := []int{0, 12, 20, 10, 8}
+	var headers []string
+	var widths []int
+	if m.isWide() {
+		headers = []string{"NAME", "REGION", "LAST SEEN", "VERSION", "STATUS"}
+		widths = []int{24, 14, 16, 12, 10}
+	} else {
+		headers = []string{"NAME", "REGION", "SEEN", "VER", "STATUS"}
+		widths = []int{16, 10, 10, 8, 8}
+	}
+	nameW := widths[0]
 
 	return m.renderTable(
-		[]string{"NAME", "REGION", "LAST SEEN", "VERSION", "STATUS"},
+		headers,
 		len(m.nodes),
 		func(start, end int) [][]string {
 			var rows [][]string
 			for i := start; i < end; i++ {
 				node := m.nodes[i]
-				name := limitStr(node.Name, 20)
+				name := limitStr(node.Name, nameW-2)
 				if name == "" {
 					name = node.ID
 				}
@@ -37,7 +46,7 @@ func (m Model) viewNodesTab() string {
 			}
 			return rows
 		},
-		colWidths,
+		widths,
 		nil,
 	)
 }
