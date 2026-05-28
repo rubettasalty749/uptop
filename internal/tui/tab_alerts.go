@@ -2,7 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"time"
 
+	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
@@ -113,26 +115,56 @@ func fmtAlertConfig(alert struct {
 	}
 }
 
+func fmtAlertHealth(h monitor.AlertHealth) string {
+	if h.LastSendAt.IsZero() {
+		return subtleStyle.Render("●")
+	}
+	if h.LastSendOK {
+		return specialStyle.Render("●")
+	}
+	return dangerStyle.Render("●")
+}
+
+func fmtAlertLastSent(h monitor.AlertHealth) string {
+	if h.LastSendAt.IsZero() {
+		return subtleStyle.Render("never")
+	}
+	d := time.Since(h.LastSendAt)
+	if d < time.Minute {
+		return fmt.Sprintf("%ds ago", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	}
+	return fmt.Sprintf("%dd ago", int(d.Hours())/24)
+}
+
 func (m Model) viewAlertsTab() string {
 	if len(m.alerts) == 0 {
 		return "\n  No alert channels configured. Press [n] to add one."
 	}
 
 	return m.renderTable(
-		[]string{"#", "NAME", "TYPE", "CONFIG"},
+		[]string{"#", "", "NAME", "TYPE", "CONFIG", "LAST SENT"},
 		len(m.alerts),
 		func(start, end int) [][]string {
 			var rows [][]string
 			for i := start; i < end; i++ {
 				a := m.alerts[i]
+				h := m.engine.GetAlertHealth(a.ID)
 				rows = append(rows, []string{
 					fmt.Sprintf("%d", i+1),
+					fmtAlertHealth(h),
 					m.zones.Mark(fmt.Sprintf("alert-%d", i), limitStr(a.Name, 15)),
 					fmtAlertType(a.Type),
 					fmtAlertConfig(struct {
 						Type     string
 						Settings map[string]string
 					}{a.Type, a.Settings}),
+					fmtAlertLastSent(h),
 				})
 			}
 			return rows

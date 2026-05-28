@@ -469,6 +469,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.state = stateFormUser
 					return m, m.initUserHuhForm()
 				}
+			case "t":
+				if m.currentTab == 1 && len(m.alerts) > 0 {
+					a := m.alerts[m.cursor]
+					go func() {
+						if err := m.engine.TestAlert(a.ID); err != nil {
+							m.engine.AddLog(fmt.Sprintf("Test alert failed (%s): %v", a.Name, err))
+						}
+					}()
+					return m, nil
+				}
 			case " ":
 				if m.currentTab == 0 && len(m.sites) > 0 && m.sites[m.cursor].Type == "group" {
 					gid := m.sites[m.cursor].ID
@@ -943,6 +953,8 @@ func (m Model) viewDashboard() string {
 		switch m.currentTab {
 		case 0:
 			keys = "[/]Filter [n]New [e]Edit [i]Info [d]Del [p]Pause [T]Theme [Tab]Switch [q]Quit"
+		case 1:
+			keys = "[n]New [e]Edit [d]Del [t]Test [T]Theme [Tab]Switch [q]Quit"
 		case 2:
 			keys = "[f]Filter [T]Theme [Tab]Switch [q]Quit"
 		case 4:

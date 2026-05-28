@@ -23,6 +23,14 @@ const (
 	minPushGrace     = 60 * time.Second
 )
 
+type AlertHealth struct {
+	LastSendAt time.Time
+	LastSendOK bool
+	LastError  string
+	SendCount  int
+	FailCount  int
+}
+
 type Engine struct {
 	mu        sync.RWMutex
 	liveState map[int]models.Site
@@ -41,6 +49,9 @@ type Engine struct {
 	probeResultsMu sync.RWMutex
 	probeResults   map[int]map[string]NodeResult
 	aggStrategy    AggregationStrategy
+
+	alertHealthMu sync.RWMutex
+	alertHealth   map[int]AlertHealth
 
 	db                  store.Store
 	insecureSkipVerify  bool
@@ -64,6 +75,7 @@ func newEngine(s store.Store, allowPrivateTargets bool) *Engine {
 		histories:           make(map[int]*SiteHistory),
 		tokenIndex:          make(map[string]int),
 		probeResults:        make(map[int]map[string]NodeResult),
+		alertHealth:         make(map[int]AlertHealth),
 		aggStrategy:         AggAnyDown,
 		isActive:            true,
 		allowPrivateTargets: allowPrivateTargets,
@@ -578,9 +590,55 @@ func (e *Engine) triggerAlert(alertID int, title, message string) {
 			defer cancel()
 			if err := provider.Send(ctx, title, message); err != nil {
 				e.AddLog(fmt.Sprintf("Alert send failed (%s): %v", cfg.Name, err))
+				e.recordAlertResult(alertID, false, err.Error())
+			} else {
+				e.recordAlertResult(alertID, true, "")
 			}
 		}()
 	}
+}
+
+func (e *Engine) recordAlertResult(alertID int, ok bool, errMsg string) {
+	e.alertHealthMu.Lock()
+	defer e.alertHealthMu.Unlock()
+	h := e.alertHealth[alertID]
+	h.LastSendAt = time.Now()
+	h.LastSendOK = ok
+	h.SendCount++
+	if ok {
+		h.LastError = ""
+	} else {
+		h.LastError = errMsg
+		h.FailCount++
+	}
+	e.alertHealth[alertID] = h
+}
+
+func (e *Engine) GetAlertHealth(alertID int) AlertHealth {
+	e.alertHealthMu.RLock()
+	defer e.alertHealthMu.RUnlock()
+	return e.alertHealth[alertID]
+}
+
+func (e *Engine) TestAlert(alertID int) error {
+	cfg, err := e.db.GetAlert(alertID)
+	if err != nil {
+		return fmt.Errorf("failed to load alert: %w", err)
+	}
+	provider := alert.GetProvider(cfg)
+	if provider == nil {
+		return fmt.Errorf("no provider for type %q", cfg.Type)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	err = provider.Send(ctx, "🧪 Test Alert", fmt.Sprintf("Test notification from uptop for channel '%s'.", cfg.Name))
+	if err != nil {
+		e.recordAlertResult(alertID, false, err.Error())
+		return err
+	}
+	e.recordAlertResult(alertID, true, "")
+	e.AddLog(fmt.Sprintf("Test alert sent to '%s'", cfg.Name))
+	return nil
 }
 
 func (e *Engine) isInMaintenance(monitorID int) bool {
