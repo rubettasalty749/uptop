@@ -96,6 +96,19 @@ func sanitizeLog(s string) string {
 	return s
 }
 
+func fmtDurationShort(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+	return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
+}
+
 func (e *Engine) AddLog(msg string) {
 	e.logMu.Lock()
 	defer e.logMu.Unlock()
@@ -206,8 +219,12 @@ func (e *Engine) RecordHeartbeat(token string) bool {
 	case "LATE":
 		e.AddLog(fmt.Sprintf("Push Monitor '%s' heartbeat arrived (was late)", site.Name))
 	case "DOWN":
-		e.AddLog(fmt.Sprintf("Push Monitor '%s' recovered", site.Name))
-		go e.triggerAlert(site.AlertID, "✅ RECOVERY", fmt.Sprintf("Push Monitor '%s' is receiving heartbeats.", site.Name))
+		downDur := ""
+		if !site.StatusChangedAt.IsZero() {
+			downDur = fmt.Sprintf(" (was down %s)", fmtDurationShort(time.Since(site.StatusChangedAt)))
+		}
+		e.AddLog(fmt.Sprintf("Push Monitor '%s' recovered%s", site.Name, downDur))
+		go e.triggerAlert(site.AlertID, "✅ RECOVERY", fmt.Sprintf("Push Monitor '%s' is receiving heartbeats.%s", site.Name, downDur))
 	}
 
 	if prevStatus != "UP" && prevStatus != "PENDING" {
@@ -514,6 +531,11 @@ func (e *Engine) handleStatusChange(site models.Site, rawStatus string, code int
 	}
 
 	isBroken := func(s string) bool { return s == "DOWN" || s == "SSL EXP" }
+
+	if site.Status == "UP" && newState.Status == "LATE" {
+		e.AddLog(fmt.Sprintf("Monitor '%s' heartbeat overdue", site.Name))
+	}
+
 	if !isBroken(site.Status) && isBroken(newState.Status) && newState.Status != "PENDING" {
 		if inMaint {
 			e.AddLog(fmt.Sprintf("Monitor '%s' is DOWN (alerts suppressed — maintenance)", site.Name))
@@ -529,11 +551,17 @@ func (e *Engine) handleStatusChange(site models.Site, rawStatus string, code int
 		}
 	}
 	if isBroken(site.Status) && newState.Status == "UP" {
-		if !inMaint {
-			e.triggerAlert(site.AlertID, "✅ RECOVERY", fmt.Sprintf("Monitor '%s' is UP", site.Name))
-		} else {
-			e.AddLog(fmt.Sprintf("Monitor '%s' recovered (maintenance active, alert suppressed)", site.Name))
+		downDur := ""
+		if !site.StatusChangedAt.IsZero() {
+			downDur = fmt.Sprintf(" (was down %s)", fmtDurationShort(time.Since(site.StatusChangedAt)))
 		}
+		e.AddLog(fmt.Sprintf("Monitor '%s' recovered%s", site.Name, downDur))
+		if !inMaint {
+			e.triggerAlert(site.AlertID, "✅ RECOVERY", fmt.Sprintf("Monitor '%s' is UP%s", site.Name, downDur))
+		}
+	}
+	if site.Status == "LATE" && newState.Status == "UP" && !isBroken(site.Status) {
+		e.AddLog(fmt.Sprintf("Monitor '%s' heartbeat arrived (was late)", site.Name))
 	}
 }
 
