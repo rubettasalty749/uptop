@@ -92,9 +92,10 @@ type Model struct {
 	userFormData  *userFormData
 	maintFormData *maintFormData
 
-	logViewport viewport.Model
-	isAdmin     bool
-	zones       *zone.Manager
+	logViewport        viewport.Model
+	logFilterImportant bool
+	isAdmin            bool
+	zones              *zone.Manager
 
 	deleteID   int
 	deleteName string
@@ -390,6 +391,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "/":
 				if m.currentTab == 0 {
 					m.filterMode = true
+					return m, nil
+				}
+			case "f":
+				if m.state == stateLogs {
+					m.logFilterImportant = !m.logFilterImportant
 					return m, nil
 				}
 			case "tab":
@@ -937,6 +943,8 @@ func (m Model) viewDashboard() string {
 		switch m.currentTab {
 		case 0:
 			keys = "[/]Filter [n]New [e]Edit [i]Info [d]Del [p]Pause [T]Theme [Tab]Switch [q]Quit"
+		case 2:
+			keys = "[f]Filter [T]Theme [Tab]Switch [q]Quit"
 		case 4:
 			keys = "[n]New [x]End [d]Del [T]Theme [Tab]Switch [q]Quit"
 		case 5:

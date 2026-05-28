@@ -5,25 +5,81 @@ import (
 	"strings"
 )
 
-func colorizeLog(line string) string {
+type logSeverity int
+
+const (
+	severityInfo logSeverity = iota
+	severityWarn
+	severityDown
+	severityUp
+	severitySystem
+)
+
+func classifyLog(line string) logSeverity {
 	lower := strings.ToLower(line)
 	switch {
 	case strings.Contains(lower, "confirmed down"),
 		strings.Contains(lower, "is down"),
 		strings.Contains(lower, "missed heartbeat"),
-		strings.Contains(lower, "failed check"),
-		strings.Contains(lower, "ssl warning"):
-		return dangerStyle.Render(line)
+		strings.Contains(lower, "alert send failed"):
+		return severityDown
 	case strings.Contains(lower, "recovered"),
 		strings.Contains(lower, "is up"),
-		strings.Contains(lower, "recovery"):
-		return specialStyle.Render(line)
+		strings.Contains(lower, "recovery"),
+		strings.Contains(lower, "first heartbeat"):
+		return severityUp
+	case strings.Contains(lower, "failed check"),
+		strings.Contains(lower, "ssl warning"),
+		strings.Contains(lower, "overdue"),
+		strings.Contains(lower, "was late"):
+		return severityWarn
 	case strings.Contains(lower, "engine"),
-		strings.Contains(lower, "cluster"):
-		return titleStyle.Render(line)
+		strings.Contains(lower, "cluster"),
+		strings.Contains(lower, "loaded"),
+		strings.Contains(lower, "paused"),
+		strings.Contains(lower, "resumed"):
+		return severitySystem
 	default:
-		return line
+		return severityInfo
 	}
+}
+
+func isImportantLog(sev logSeverity) bool {
+	return sev == severityDown || sev == severityUp || sev == severitySystem
+}
+
+func renderLogTag(sev logSeverity) string {
+	switch sev {
+	case severityDown:
+		return dangerStyle.Render(" DOWN ")
+	case severityUp:
+		return specialStyle.Render("  UP  ")
+	case severityWarn:
+		return warnStyle.Render(" WARN ")
+	case severitySystem:
+		return titleStyle.Render(" SYS  ")
+	default:
+		return subtleStyle.Render(" info ")
+	}
+}
+
+func renderLogLine(line string) string {
+	sev := classifyLog(line)
+	tag := renderLogTag(sev)
+
+	ts := ""
+	msg := line
+	if len(line) > 10 && line[0] == '[' {
+		if idx := strings.Index(line, "]"); idx > 0 && idx < 12 {
+			ts = subtleStyle.Render(line[1:idx])
+			msg = strings.TrimSpace(line[idx+1:])
+		}
+	}
+
+	if ts != "" {
+		return fmt.Sprintf("  %s  %s  %s", ts, tag, msg)
+	}
+	return fmt.Sprintf("  %s  %s", tag, msg)
 }
 
 func (m Model) viewLogsTab() string {
@@ -33,22 +89,34 @@ func (m Model) viewLogsTab() string {
 	}
 
 	lines := strings.Split(content, "\n")
-	var colored []string
+	var rendered []string
+	total := 0
+	shown := 0
+
 	for _, line := range lines {
-		if line == "" {
-			colored = append(colored, line)
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		colored = append(colored, colorizeLog(line))
-	}
-
-	count := 0
-	for _, l := range lines {
-		if strings.TrimSpace(l) != "" {
-			count++
+		total++
+		sev := classifyLog(line)
+		if m.logFilterImportant && !isImportantLog(sev) {
+			continue
 		}
+		shown++
+		rendered = append(rendered, renderLogLine(line))
 	}
 
-	header := subtleStyle.Render(fmt.Sprintf("  %d entries  [↑/↓] Scroll  [PgUp/PgDn] Page", count))
-	return "\n" + header + "\n\n" + strings.Join(colored, "\n")
+	filterLabel := "All"
+	if m.logFilterImportant {
+		filterLabel = "Important"
+	}
+
+	header := subtleStyle.Render(fmt.Sprintf(
+		"  %d entries  [↑/↓] Scroll  [PgUp/PgDn] Page  [f] Filter: %s", shown, filterLabel))
+
+	if m.logFilterImportant && shown < total {
+		header += subtleStyle.Render(fmt.Sprintf("  (%d hidden)", total-shown))
+	}
+
+	return "\n" + header + "\n\n" + strings.Join(rendered, "\n")
 }
