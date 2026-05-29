@@ -14,6 +14,7 @@ type Dialect interface {
 	ImportWipe(tx *sql.Tx)
 	ImportResetSequences(tx *sql.Tx)
 	UpsertNodeSQL() string
+	UpsertAlertHealthSQL() string
 }
 
 func rewritePlaceholders(query string, dollarStyle bool) string {

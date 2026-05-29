@@ -79,6 +79,17 @@ type ProbeNode struct {
 	Version  string
 }
 
+// AlertHealthRecord is the persisted send health of an alert channel. It lets the
+// "last sent" / health indicators survive restarts instead of resetting to "never".
+type AlertHealthRecord struct {
+	AlertID    int
+	LastSendAt time.Time
+	LastSendOK bool
+	LastError  string
+	SendCount  int
+	FailCount  int
+}
+
 type MaintenanceWindow struct {
 	ID          int
 	MonitorID   int

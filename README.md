@@ -1,19 +1,49 @@
-# uptop
+<div align="center">
+  <h1>uptop</h1>
+  <p>Self-hosted uptime monitoring with a TUI over SSH.</p>
+  <p>No browser. No client install. Just <code>ssh -p 23234 your-server</code>.</p>
 
-Self-hosted uptime monitor with a TUI you can access over SSH. No browser, no install on the client — just `ssh -p 23234 your-server`.
+  <p>
+    <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License">
+    <img src="https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white" alt="Go 1.26">
+    <img src="https://img.shields.io/docker/pulls/lerkolabs/uptop" alt="Docker Pulls">
+  </p>
 
-Built on the foundation of [RDGames/go-upkeep](https://github.com/RDGames/go-upkeep).
+  <img src="assets/monitors.png" alt="uptop monitors view" width="800">
+</div>
 
-## What it does
+## What is this
 
-- **6 check types**: HTTP, Push (heartbeat), Ping, Port, DNS, Groups
-- **9 alert providers**: Discord, Slack, Email, Ntfy, Webhook, Telegram, PagerDuty, Pushover, Gotify
-- **Config as code**: define monitors in YAML, apply declaratively, version control your setup
-- **HA clustering**: leader/follower with automatic failover
-- **Prometheus metrics**: `/metrics` endpoint for Grafana dashboards
-- **Public status page**: HTML + JSON, toggle with an env var
-- **SQLite or Postgres**: SQLite for single-node, Postgres for production
-- **Uptime Kuma import**: migrate from Kuma with one command
+An uptime monitor you manage entirely from the terminal. It runs as a server, exposes an SSH endpoint, and drops you into a full TUI — monitors, alerts, logs, nodes, all there.
+
+Built on [RDGames/go-upkeep](https://github.com/RDGames/go-upkeep). Rewritten for clustering, config-as-code, and a proper dashboard.
+
+## Features
+
+- **6 check types** — HTTP, Push (heartbeat), Ping, Port, DNS, Groups
+- **9 alert providers** — Discord, Slack, Email, Ntfy, Webhook, Telegram, PagerDuty, Pushover, Gotify
+- **Config as code** — define monitors in YAML, apply declaratively, version control your setup
+- **HA clustering** — leader/follower with automatic failover
+- **Prometheus metrics** — `/metrics` endpoint, wire it straight to Grafana
+- **Public status page** — HTML + JSON, toggle with an env var
+- **SQLite or Postgres** — SQLite for single-node, Postgres for production
+- **Uptime Kuma import** — migrate from Kuma with one command
+
+## Screenshots
+
+<table>
+  <tr>
+    <td><img src="assets/detail.png" alt="detail panel" width="400"></td>
+    <td><img src="assets/alerts.png" alt="alerts view" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="assets/logs.png" alt="logs view" width="400"></td>
+    <td><img src="assets/nodes.png" alt="cluster nodes" width="400"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><img src="assets/theme.png" alt="theme selection" width="600"></td>
+  </tr>
+</table>
 
 ## Quick start
 
@@ -22,7 +52,7 @@ go run cmd/uptop/main.go
 ssh -p 23234 localhost
 ```
 
-Seed some demo data to see it in action:
+Want some data to look at first:
 
 ```bash
 go run cmd/uptop/main.go -demo
@@ -30,22 +60,45 @@ go run cmd/uptop/main.go -demo
 
 ## Install
 
-### From source
+<details>
+<summary><strong>Docker (recommended)</strong></summary>
+
+```yaml
+services:
+  uptop:
+    image: lerkolabs/uptop:latest
+    restart: unless-stopped
+    ports:
+      - "23234:23234"
+      - "8080:8080"
+    environment:
+      - UPTOP_DB_TYPE=sqlite
+      - UPTOP_DB_DSN=/data/uptop.db
+      - UPTOP_STATUS_ENABLED=true
+      # - UPTOP_ADMIN_KEY=ssh-ed25519 AAAA... you@host
+    volumes:
+      - ./data:/data
+```
+
+First run: set `UPTOP_ADMIN_KEY` to your SSH public key, or attach to the container and add it in the Users tab.
+
+</details>
+
+<details>
+<summary><strong>Binary</strong></summary>
+
+Download from [Releases](https://gitea.lerkolabs.com/lerko/uptop/releases).
+
+</details>
+
+<details>
+<summary><strong>From source</strong></summary>
 
 ```bash
 go install gitea.lerkolabs.com/lerko/uptop/cmd/uptop@latest
 ```
 
-### Docker
-
-```bash
-docker pull lerko/uptop:latest
-docker run -p 23234:23234 -p 8080:8080 -v ./data:/data lerko/uptop
-```
-
-### Binary
-
-Download from [Releases](https://gitea.lerkolabs.com/lerko/uptop/releases).
+</details>
 
 ## Config as code
 
@@ -63,35 +116,11 @@ uptop apply -f monitors.yaml --dry-run   # see what would change
 uptop apply -f monitors.yaml --prune     # delete anything not in the YAML
 ```
 
-See [docs/config-as-code.md](docs/config-as-code.md) for the full reference.
-
-## Docker
-
-```yaml
-services:
-  monitor:
-    build: .
-    restart: unless-stopped
-    stdin_open: true
-    tty: true
-    ports:
-      - "23234:23234"
-      - "8080:8080"
-    volumes:
-      - ./data:/data
-      - ./ssh_keys:/app/.ssh
-    environment:
-      - UPTOP_DB_TYPE=sqlite
-      - UPTOP_DB_DSN=/data/uptop.db
-      - UPTOP_STATUS_ENABLED=true
-      - UPTOP_CLUSTER_SECRET=change-me
-```
-
-First run: attach to the container (`docker attach uptop`), go to the Users tab, add your SSH public key. Then detach with `Ctrl+P, Ctrl+Q` and connect normally over SSH.
+Full reference in [docs/config-as-code.md](docs/config-as-code.md).
 
 ## Environment variables
 
-| Variable | Default | What it does |
+| Variable | Default | Description |
 |---|---|---|
 | `UPTOP_PORT` | `23234` | SSH server port |
 | `UPTOP_HTTP_PORT` | `8080` | HTTP server port (status page, push, metrics) |
@@ -103,6 +132,7 @@ First run: attach to the container (`docker attach uptop`), go to the Users tab,
 | `UPTOP_PEER_URL` | | Leader URL for follower nodes |
 | `UPTOP_CLUSTER_SECRET` | | Shared key for cluster + API auth |
 | `UPTOP_INSECURE_SKIP_VERIFY` | `false` | Skip TLS verification for checks |
+| `UPTOP_ADMIN_KEY` | | SSH public key seeded as first admin on startup |
 
 ## Migrating from Uptime Kuma
 

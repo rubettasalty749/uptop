@@ -88,6 +88,14 @@ func (d *SQLiteDialect) CreateTablesSQL() []string {
 			changed_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_state_changes_site ON state_changes(site_id, changed_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS alert_health (
+			alert_id INTEGER PRIMARY KEY,
+			last_send_at DATETIME,
+			last_send_ok BOOLEAN DEFAULT 0,
+			last_error TEXT DEFAULT '',
+			send_count INTEGER DEFAULT 0,
+			fail_count INTEGER DEFAULT 0
+		)`,
 	}
 }
 
@@ -111,6 +119,10 @@ func (d *SQLiteDialect) MigrationsSQL() []string {
 
 func (d *SQLiteDialect) UpsertNodeSQL() string {
 	return "INSERT OR REPLACE INTO nodes (id, name, region, last_seen, version) VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)"
+}
+
+func (d *SQLiteDialect) UpsertAlertHealthSQL() string {
+	return "INSERT OR REPLACE INTO alert_health (alert_id, last_send_at, last_send_ok, last_error, send_count, fail_count) VALUES (?, ?, ?, ?, ?, ?)"
 }
 
 func (d *SQLiteDialect) ResetSequenceOnEmpty(db *sql.DB, table string) {

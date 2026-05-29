@@ -81,6 +81,14 @@ func (d *PostgresDialect) CreateTablesSQL() []string {
 			changed_at TIMESTAMP DEFAULT NOW()
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_state_changes_site ON state_changes(site_id, changed_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS alert_health (
+			alert_id INTEGER PRIMARY KEY,
+			last_send_at TIMESTAMP,
+			last_send_ok BOOLEAN DEFAULT FALSE,
+			last_error TEXT DEFAULT '',
+			send_count INTEGER DEFAULT 0,
+			fail_count INTEGER DEFAULT 0
+		)`,
 	}
 }
 
@@ -104,6 +112,10 @@ func (d *PostgresDialect) MigrationsSQL() []string {
 
 func (d *PostgresDialect) UpsertNodeSQL() string {
 	return "INSERT INTO nodes (id, name, region, last_seen, version) VALUES ($1, $2, $3, NOW(), $4) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, region = EXCLUDED.region, last_seen = NOW(), version = EXCLUDED.version"
+}
+
+func (d *PostgresDialect) UpsertAlertHealthSQL() string {
+	return "INSERT INTO alert_health (alert_id, last_send_at, last_send_ok, last_error, send_count, fail_count) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (alert_id) DO UPDATE SET last_send_at = EXCLUDED.last_send_at, last_send_ok = EXCLUDED.last_send_ok, last_error = EXCLUDED.last_error, send_count = EXCLUDED.send_count, fail_count = EXCLUDED.fail_count"
 }
 
 func (d *PostgresDialect) ResetSequenceOnEmpty(db *sql.DB, table string) {}

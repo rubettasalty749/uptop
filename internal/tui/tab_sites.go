@@ -60,14 +60,18 @@ type siteFormData struct {
 	Regions       string
 }
 
-func latencySparkline(latencies []time.Duration, width int) string {
+func latencySparkline(latencies []time.Duration, statuses []bool, width int) string {
 	if len(latencies) == 0 {
 		return subtleStyle.Render(strings.Repeat("·", width))
 	}
 
 	samples := latencies
+	sampledStatuses := statuses
 	if len(samples) > width {
 		samples = samples[len(samples)-width:]
+		if len(sampledStatuses) > width {
+			sampledStatuses = sampledStatuses[len(sampledStatuses)-width:]
+		}
 	}
 
 	minL, maxL := samples[0], samples[0]
@@ -85,7 +89,7 @@ func latencySparkline(latencies []time.Duration, width int) string {
 		sb.WriteString(subtleStyle.Render(strings.Repeat("·", remaining)))
 	}
 	spread := maxL - minL
-	for _, l := range samples {
+	for i, l := range samples {
 		idx := 0
 		if spread > 0 {
 			idx = int(float64(l-minL) / float64(spread) * 7)
@@ -94,13 +98,18 @@ func latencySparkline(latencies []time.Duration, width int) string {
 			}
 		}
 		ch := string(sparkChars[idx])
-		ms := l.Milliseconds()
-		if ms < 200 {
-			sb.WriteString(specialStyle.Render(ch))
-		} else if ms < 500 {
-			sb.WriteString(warnStyle.Render(ch))
-		} else {
+		isDown := i < len(sampledStatuses) && !sampledStatuses[i]
+		if isDown {
 			sb.WriteString(dangerStyle.Render(ch))
+		} else {
+			ms := l.Milliseconds()
+			if ms < 200 {
+				sb.WriteString(specialStyle.Render(ch))
+			} else if ms < 500 {
+				sb.WriteString(warnStyle.Render(ch))
+			} else {
+				sb.WriteString(dangerStyle.Render(ch))
+			}
 		}
 	}
 	return sb.String()
@@ -474,7 +483,7 @@ func (m Model) viewSitesTab() string {
 				if site.Type == "push" {
 					spark = heartbeatSparkline(hist.Statuses, sparkWidth)
 				} else {
-					spark = latencySparkline(hist.Latencies, sparkWidth)
+					spark = latencySparkline(hist.Latencies, hist.Statuses, sparkWidth)
 				}
 
 				rows = append(rows, []string{
@@ -949,20 +958,27 @@ func (m Model) viewDetailPanel() string {
 				up, len(hist.Statuses))
 		}
 	} else {
-		b.WriteString("  " + latencySparkline(hist.Latencies, sparkWidth))
-		if len(hist.Latencies) > 0 {
-			minL, maxL := hist.Latencies[0], hist.Latencies[0]
-			var total time.Duration
-			for _, l := range hist.Latencies {
-				total += l
-				if l < minL {
-					minL = l
-				}
-				if l > maxL {
-					maxL = l
-				}
+		b.WriteString("  " + latencySparkline(hist.Latencies, hist.Statuses, sparkWidth))
+		// Stats over successful checks only — a failed check is stored as 0ns latency
+		// and would otherwise drag Min to 0ms and skew the average.
+		var minL, maxL, total time.Duration
+		count := 0
+		for i, l := range hist.Latencies {
+			if i < len(hist.Statuses) && !hist.Statuses[i] {
+				continue
 			}
-			avg := total / time.Duration(len(hist.Latencies))
+			if count == 0 {
+				minL, maxL = l, l
+			} else if l < minL {
+				minL = l
+			} else if l > maxL {
+				maxL = l
+			}
+			total += l
+			count++
+		}
+		if count > 0 {
+			avg := total / time.Duration(count)
 			fmt.Fprintf(&b, "\n  %s %dms  %s %dms  %s %dms",
 				subtleStyle.Render("Min"), minL.Milliseconds(),
 				subtleStyle.Render("Avg"), avg.Milliseconds(),

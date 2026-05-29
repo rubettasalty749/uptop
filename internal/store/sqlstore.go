@@ -430,6 +430,37 @@ func (s *SQLStore) DeleteNode(id string) error {
 	return err
 }
 
+func (s *SQLStore) LoadAlertHealth() (map[int]models.AlertHealthRecord, error) {
+	rows, err := s.db.Query("SELECT alert_id, last_send_at, last_send_ok, last_error, send_count, fail_count FROM alert_health")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[int]models.AlertHealthRecord)
+	for rows.Next() {
+		var r models.AlertHealthRecord
+		var lastSend sql.NullTime
+		if err := rows.Scan(&r.AlertID, &lastSend, &r.LastSendOK, &r.LastError, &r.SendCount, &r.FailCount); err != nil {
+			return out, err
+		}
+		if lastSend.Valid {
+			r.LastSendAt = lastSend.Time
+		}
+		out[r.AlertID] = r
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLStore) SaveAlertHealth(h models.AlertHealthRecord) error {
+	var lastSend interface{}
+	if !h.LastSendAt.IsZero() {
+		lastSend = h.LastSendAt
+	}
+	_, err := s.db.Exec(s.dialect.UpsertAlertHealthSQL(),
+		h.AlertID, lastSend, h.LastSendOK, h.LastError, h.SendCount, h.FailCount)
+	return err
+}
+
 func (s *SQLStore) SaveLog(message string) error {
 	_, err := s.db.Exec(s.q("INSERT INTO logs (message) VALUES (?)"), message)
 	if err != nil {

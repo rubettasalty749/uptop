@@ -385,6 +385,7 @@ func runServe(args []string) {
 
 	eng.InitHistory()
 	eng.InitLogs()
+	eng.InitAlertHealth()
 	eng.Start(ctx)
 
 	tlsCert := os.Getenv("UPTOP_TLS_CERT")

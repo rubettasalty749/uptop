@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -122,6 +123,10 @@ type Model struct {
 
 	filterMode bool
 	filterText string
+
+	// demoMode renders a stable status dot instead of the animated pulse so
+	// screenshots/recordings don't capture the spinner mid-frame. Set via UPTOP_DEMO=1.
+	demoMode bool
 }
 
 func InitialModel(isAdmin bool, s store.Store, eng *monitor.Engine) Model {
@@ -155,6 +160,7 @@ func InitialModel(isAdmin bool, s store.Store, eng *monitor.Engine) Model {
 		collapsed:    collapsed,
 		theme:        theme,
 		themeIndex:   themeIdx,
+		demoMode:     os.Getenv("UPTOP_DEMO") == "1",
 	}
 }
 
@@ -754,17 +760,25 @@ func (m *Model) submitForm() {
 }
 
 func (m Model) pulseIndicator() string {
-	frame := m.tickCount % len(pulseFrames)
-	brightness := int(m.pulsePos*155) + 100
-	if brightness > 255 {
-		brightness = 255
-	}
 	hasDown := false
 	for _, s := range m.sites {
 		if !s.Paused && !m.isMonitorInMaintenance(s.ID) && (s.Status == "DOWN" || s.Status == "SSL EXP") {
 			hasDown = true
 			break
 		}
+	}
+	// Stills can't show animation: render a stable status dot in demo mode.
+	if m.demoMode {
+		c := m.theme.Success
+		if hasDown {
+			c = m.theme.Danger
+		}
+		return lipgloss.NewStyle().Foreground(c).Render("●")
+	}
+	frame := m.tickCount % len(pulseFrames)
+	brightness := int(m.pulsePos*155) + 100
+	if brightness > 255 {
+		brightness = 255
 	}
 	var color string
 	if hasDown {
@@ -953,7 +967,11 @@ func (m Model) viewDashboard() string {
 				online++
 			}
 		}
-		statusParts = append(statusParts, fmt.Sprintf("%d probes", online))
+		probeLabel := "probes"
+		if online == 1 {
+			probeLabel = "probe"
+		}
+		statusParts = append(statusParts, fmt.Sprintf("%d %s", online, probeLabel))
 	}
 	statusLine := strings.Join(statusParts, subtleStyle.Render(" · "))
 

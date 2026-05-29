@@ -146,6 +146,26 @@ func (e *Engine) InitLogs() {
 	e.logStore = logs
 }
 
+// InitAlertHealth restores persisted alert send health so the dashboard shows real
+// "last sent" / health state on startup instead of resetting every channel to "never".
+func (e *Engine) InitAlertHealth() {
+	records, err := e.db.LoadAlertHealth()
+	if err != nil {
+		return
+	}
+	e.alertHealthMu.Lock()
+	defer e.alertHealthMu.Unlock()
+	for id, r := range records {
+		e.alertHealth[id] = AlertHealth{
+			LastSendAt: r.LastSendAt,
+			LastSendOK: r.LastSendOK,
+			LastError:  r.LastError,
+			SendCount:  r.SendCount,
+			FailCount:  r.FailCount,
+		}
+	}
+}
+
 func (e *Engine) GetLogs() []string {
 	e.logMu.RLock()
 	defer e.logMu.RUnlock()
@@ -612,6 +632,18 @@ func (e *Engine) recordAlertResult(alertID int, ok bool, errMsg string) {
 		h.FailCount++
 	}
 	e.alertHealth[alertID] = h
+
+	// Persist best-effort so health survives restarts; DB IO off the alert path.
+	go func(rec models.AlertHealthRecord) {
+		_ = e.db.SaveAlertHealth(rec)
+	}(models.AlertHealthRecord{
+		AlertID:    alertID,
+		LastSendAt: h.LastSendAt,
+		LastSendOK: h.LastSendOK,
+		LastError:  h.LastError,
+		SendCount:  h.SendCount,
+		FailCount:  h.FailCount,
+	})
 }
 
 func (e *Engine) GetAlertHealth(alertID int) AlertHealth {

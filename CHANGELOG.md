@@ -1,46 +1,88 @@
 # Changelog
 
-## [2026.05.2] — 2026-05-23
+## [2026.05.5] — 2026-05-29
 
 ### Added
-- Comprehensive test suite (94 tests across monitor, server, cluster)
-- golangci-lint config with CI enforcement
-- Gitea Actions CI pipeline (test + lint)
-- Graceful shutdown for HTTP and SSH servers
-- Context-aware alert delivery with timeout
-- Request size limits on all POST endpoints
-- Constant-time secret comparison
-- Check interval jitter to prevent thundering herd
-- `--version` flag with build metadata injection
+- Error reason display when monitors go DOWN (#33)
+- Push monitor lifecycle — PENDING, LATE, DOWN states (#34)
+- Logs tab overhaul — severity tags, filtering, recovery durations (#35)
+- Alert channel health indicator and test alerts (#36)
 
-### Fixed
-- Silent JSON unmarshal failures in alert settings
-- Panic on crypto/rand failure replaced with error return
-- Alert delivery errors now logged instead of swallowed
-- log.Fatalf in goroutines replaced with log.Printf
-- Deprecated LineUp/LineDown API calls
+### Changed
+- Visual polish — detail sections, column headers, alert detail (#37)
+
+## [2026.05.4] — 2026-05-27
+
+### Added
+- SSH user seeding from `UPTOP_ADMIN_KEY` env var and `UPTOP_KEYS` file (#31)
+- GoReleaser for binary releases
+- govulncheck in CI pipeline
+- Multi-arch Docker builds (amd64 + arm64)
+
+### Changed
+- CI overhaul — Go 1.26, build caching, streamlined pipeline (#30)
+- Bumped golang.org/x/crypto v0.47.0 → v0.52.0
+- Bumped Alpine 3.21 → 3.23
 
 ### Security
-- Cluster secret compared with crypto/subtle (timing-safe)
-- http.MaxBytesReader on all JSON endpoints
-- ReadHeaderTimeout added to HTTP server
+- Phase 1: SSRF protection, input validation, safe dial (#26)
+- Phase 2: TLS hardening, auth bypass fixes, rate limiting (#27)
+- Phase 3: Graceful degradation, connection limits, timeout enforcement (#28)
+- Phase 4: Code quality, error handling, linter fixes (#29)
 
-## [2026.05.1] — 2026-05-14
+## [2026.05.3] — 2026-05-25
+
+### Added
+- Theme system with 5 dark palettes — Default, Dracula, Nord, Tokyo Night, Gruvbox (#24)
+- `--version` flag with build metadata injection
+- Gitea Actions CI pipeline — test + lint (#20)
+- golangci-lint configuration
+- Comprehensive test suite — 94 tests across monitor, server, cluster (#19)
+- CONTRIBUTING.md and SECURITY.md
+
+### Changed
+- Renamed project from go-upkeep to uptop (#25)
+- Updated LICENSE with dual copyright for independent fork
+
+### Fixed
+- Form validators scoped to relevant monitor types (#23)
+- Graceful shutdown for HTTP, SSH servers and database (#19)
+- Constant-time secret comparison, request size limits (#19)
+- Check interval jitter to prevent thundering herd (#19)
+- TUI visual polish — zebra striping, group icons, sparkline stats (#18)
+
+## [2026.05.2] — 2026-05-22
+
+### Added
+- Incident management and maintenance windows (#17)
+- Production docker-compose.yml
+
+### Fixed
+- Viewport sizing and dynamic chrome calculation (#16)
+- Form height constrained to terminal with resize forwarding
+- Maintenance'd monitors excluded from down count and pulse
+- Group status correctly skips children in maintenance
+
+## [2026.05.1] — 2026-05-16
 
 ### Added
 - Distributed probing with leader + probe nodes
-- Config-as-code (YAML apply/export with dry-run, prune)
-- TUI visual polish (zebra striping, sparklines, breadcrumbs)
-- Incident management and maintenance windows
-- 9 alert providers (Discord, Slack, Email, Ntfy, Telegram, PagerDuty, Pushover, Gotify, Webhook)
+- Config-as-code — YAML apply/export with dry-run and prune
+- TUI polish — status bar, tab badges, detail panel, modals
+- DOWN-first sort, health pulse, site filter
+- Type icons in sites table
+- Sparkline history graphs
+- Persistent state — uptime, status, latency, and logs survive restarts
+- Push token stripping from /status/json response
 
-## [2026.04.1] — Initial independent fork
+## [2026.04.1] — 2026-04-01
 
 ### Added
-- SSH-accessible TUI (Bubble Tea + Wish)
-- 6 check types (HTTP, Push, Ping, Port, DNS, Group)
+- SSH-accessible TUI built on Bubble Tea + Wish
+- 6 check types — HTTP, Push, Ping, Port, DNS, Group
+- 9 alert providers — Discord, Slack, Email, Ntfy, Telegram, PagerDuty, Pushover, Gotify, Webhook
 - SQLite and PostgreSQL support
 - HA clustering with automatic failover
-- Prometheus metrics endpoint
-- Public status page
-- Uptime Kuma import
+- Prometheus /metrics endpoint
+- Public status page (HTML + JSON)
+- Uptime Kuma backup import

@@ -65,8 +65,12 @@ func (m *mockStore) AddAlertReturningID(string, string, map[string]string) (int,
 func (m *mockStore) GetAllNodes() ([]models.ProbeNode, error) { return nil, nil }
 func (m *mockStore) UpdateNodeLastSeen(string) error          { return nil }
 func (m *mockStore) DeleteNode(string) error                  { return nil }
-func (m *mockStore) SaveLog(string) error                     { return nil }
-func (m *mockStore) LoadLogs(int) ([]string, error)           { return nil, nil }
+func (m *mockStore) LoadAlertHealth() (map[int]models.AlertHealthRecord, error) {
+	return nil, nil
+}
+func (m *mockStore) SaveAlertHealth(models.AlertHealthRecord) error { return nil }
+func (m *mockStore) SaveLog(string) error                           { return nil }
+func (m *mockStore) LoadLogs(int) ([]string, error)                 { return nil, nil }
 func (m *mockStore) GetAllMaintenanceWindows(int) ([]models.MaintenanceWindow, error) {
 	return nil, nil
 }

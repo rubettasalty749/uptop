@@ -49,6 +49,10 @@ type Store interface {
 	UpdateNodeLastSeen(id string) error
 	DeleteNode(id string) error
 
+	// Alert Health
+	LoadAlertHealth() (map[int]models.AlertHealthRecord, error)
+	SaveAlertHealth(h models.AlertHealthRecord) error
+
 	// Logs
 	SaveLog(message string) error
 	LoadLogs(limit int) ([]string, error)
