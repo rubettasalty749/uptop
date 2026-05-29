@@ -8,7 +8,13 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: sh
     steps:
+      - name: Install build tools
+        run: apk add --no-cache git gcc musl-dev
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
