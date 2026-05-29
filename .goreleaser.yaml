@@ -1,7 +1,7 @@
 version: 2
 
 gitea_urls:
-  api: https://gitea.lerkolabs.com/api/v1
+  api: "{{ if index .Env \"GITEA_API_URL\" }}{{ .Env.GITEA_API_URL }}{{ else }}https://gitea.lerkolabs.com/api/v1{{ end }}"
   download: https://gitea.lerkolabs.com
 
 release:

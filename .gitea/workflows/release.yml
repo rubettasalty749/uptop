@@ -40,6 +40,7 @@ jobs:
         env:
           GORELEASER_FORCE_TOKEN: gitea
           GITEA_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GITEA_API_URL: http://gitea:3000/api/v1
 
   docker:
     runs-on: ubuntu-latest
