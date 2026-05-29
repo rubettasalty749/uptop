@@ -43,7 +43,7 @@ jobs:
           GITEA_API_URL: http://gitea:3000/api/v1
 
   docker:
-    runs-on: ubuntu-latest
+    runs-on: docker-builder
     needs: [release]
     steps:
       - uses: actions/checkout@v4
