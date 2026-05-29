@@ -7,9 +7,15 @@
 - Push monitor lifecycle — PENDING, LATE, DOWN states (#34)
 - Logs tab overhaul — severity tags, filtering, recovery durations (#35)
 - Alert channel health indicator and test alerts (#36)
+- TUI screenshots in `assets/` (#32)
+- CI status badge in README
 
 ### Changed
 - Visual polish — detail sections, column headers, alert detail (#37)
+- README rewritten with hero image, badges, collapsible install sections (#32)
+- Changelog rewritten to match actual CalVer tag history
+- Migrated to `lerkolabs` org namespace (#38)
+- Docker-compose files moved to `deploy/`
 
 ## [2026.05.4] — 2026-05-27
 
