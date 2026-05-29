@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerkolabs/uptop/internal/models"
 )
 
 const (

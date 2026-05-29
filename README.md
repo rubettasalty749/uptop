@@ -87,7 +87,7 @@ First run: set `UPTOP_ADMIN_KEY` to your SSH public key, or attach to the contai
 <details>
 <summary><strong>Binary</strong></summary>
 
-Download from [Releases](https://gitea.lerkolabs.com/lerko/uptop/releases).
+Download from [Releases](https://gitea.lerkolabs.com/lerkolabs/uptop/releases).
 
 </details>
 
@@ -95,7 +95,7 @@ Download from [Releases](https://gitea.lerkolabs.com/lerko/uptop/releases).
 <summary><strong>From source</strong></summary>
 
 ```bash
-go install gitea.lerkolabs.com/lerko/uptop/cmd/uptop@latest
+go install gitea.lerkolabs.com/lerkolabs/uptop/cmd/uptop@latest
 ```
 
 </details>

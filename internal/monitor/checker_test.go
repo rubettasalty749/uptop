@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerkolabs/uptop/internal/models"
 )
 
 func TestRunCheck_HTTP_Success(t *testing.T) {

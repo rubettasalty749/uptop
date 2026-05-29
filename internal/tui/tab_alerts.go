@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
+	"gitea.lerkolabs.com/lerkolabs/uptop/internal/monitor"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
