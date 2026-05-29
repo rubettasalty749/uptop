@@ -1,15 +1,10 @@
 .git
+.ssh/
+.gitea/
 tmp/
 vendor/
-
-# Security: keep sensitive/local files out of Docker build context
-.ssh/
-.claude/
-.github/
-.gitea/
-CLAUDE.md
+*.db
+*.db-journal
 *.local.json
 *.local.md
 *.local
-*.db
-*.db-journal
