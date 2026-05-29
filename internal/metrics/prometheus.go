@@ -2,8 +2,8 @@ package metrics
 
 import (
 	"fmt"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
-	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
+	"gitea.lerkolabs.com/lerkolabs/uptop/internal/models"
+	"gitea.lerkolabs.com/lerkolabs/uptop/internal/monitor"
 	"net/http"
 	"sort"
 	"strings"

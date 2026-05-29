@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerkolabs/uptop/internal/models"
 )
 
 func TestHTTPProviderDiscord(t *testing.T) {

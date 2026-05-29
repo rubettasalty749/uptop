@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"gitea.lerkolabs.com/lerko/uptop/internal/alert"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
-	"gitea.lerkolabs.com/lerko/uptop/internal/store"
+	"gitea.lerkolabs.com/lerkolabs/uptop/internal/alert"
+	"gitea.lerkolabs.com/lerkolabs/uptop/internal/models"
+	"gitea.lerkolabs.com/lerkolabs/uptop/internal/store"
 )
 
 const (

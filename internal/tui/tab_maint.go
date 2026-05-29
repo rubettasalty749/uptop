@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerkolabs/uptop/internal/models"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"

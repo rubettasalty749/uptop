@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerkolabs/uptop/internal/models"
 
 	"github.com/miekg/dns"
 	probing "github.com/prometheus-community/pro-bing"

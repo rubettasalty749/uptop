@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
-	"gitea.lerkolabs.com/lerko/uptop/internal/monitor"
-	"gitea.lerkolabs.com/lerko/uptop/internal/store"
+	"gitea.lerkolabs.com/lerkolabs/uptop/internal/models"
+	"gitea.lerkolabs.com/lerkolabs/uptop/internal/monitor"
+	"gitea.lerkolabs.com/lerkolabs/uptop/internal/store"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"

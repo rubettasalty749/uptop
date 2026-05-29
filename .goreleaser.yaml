@@ -6,7 +6,7 @@ gitea_urls:
 
 release:
   gitea:
-    owner: lerko
+    owner: lerkolabs
     name: uptop
 
 builds:

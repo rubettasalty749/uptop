@@ -3,7 +3,7 @@ package importer
 import (
 	"encoding/json"
 	"fmt"
-	"gitea.lerkolabs.com/lerko/uptop/internal/models"
+	"gitea.lerkolabs.com/lerkolabs/uptop/internal/models"
 	"os"
 	"strings"
 )
