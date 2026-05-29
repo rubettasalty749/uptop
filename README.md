@@ -4,6 +4,7 @@
   <p>No browser. No client install. Just <code>ssh -p 23234 your-server</code>.</p>
 
   <p>
+    <a href="https://gitea.lerkolabs.com/lerkolabs/uptop/actions/workflows/ci.yml"><img src="https://gitea.lerkolabs.com/lerkolabs/uptop/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License">
     <img src="https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white" alt="Go 1.26">
     <img src="https://img.shields.io/docker/pulls/lerkolabs/uptop" alt="Docker Pulls">
