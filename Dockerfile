@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # --- Stage 2: Runner ---
 FROM alpine:3.23
 WORKDIR /app
-RUN apk add --no-cache ca-certificates openssh-client
+RUN apk add --no-cache ca-certificates && apk upgrade --no-cache
 RUN mkdir /data
 
 COPY --from=builder /app/uptop .
